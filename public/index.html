@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lease Abstraction Tool</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+      min-height: 100vh;
+      padding: 2rem;
+    }
+    
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    
+    header {
+      text-align: center;
+      margin-bottom: 2rem;
+    }
+    
+    h1 {
+      font-size: 2.5rem;
+      background: linear-gradient(135deg, #60a5fa, #a78bfa);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 0.5rem;
+    }
+    
+    .subtitle {
+      color: #94a3b8;
+      font-size: 1.1rem;
+    }
+    
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 2rem;
+    }
+    
+    @media (max-width: 900px) {
+      .grid { grid-template-columns: 1fr; }
+    }
+    
+    .card {
+      background: #1e293b;
+      border-radius: 12px;
+      padding: 1.5rem;
+      border: 1px solid #334155;
+    }
+    
+    .card h2 {
+      font-size: 1.25rem;
+      margin-bottom: 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    
+    /* Upload Zone */
+    .upload-zone {
+      border: 2px dashed #475569;
+      border-radius: 8px;
+      padding: 3rem 2rem;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    
+    .upload-zone:hover, .upload-zone.dragover {
+      border-color: #60a5fa;
+      background: rgba(96, 165, 250, 0.1);
+    }
+    
+    .upload-zone input {
+      display: none;
+    }
+    
+    .upload-icon {
+      font-size: 3rem;
+      margin-bottom: 1rem;
+    }
+    
+    /* Search */
+    .search-box {
+      display: flex;
+      gap: 0.5rem;
+    }
+    
+    .search-box input {
+      flex: 1;
+      padding: 0.75rem 1rem;
+      border: 1px solid #475569;
+      border-radius: 8px;
+      background: #0f172a;
+      color: #e2e8f0;
+      font-size: 1rem;
+    }
+    
+    .search-box input:focus {
+      outline: none;
+      border-color: #60a5fa;
+    }
+    
+    button {
+      padding: 0.75rem 1.5rem;
+      border: none;
+      border-radius: 8px;
+      background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+      color: white;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.1s, opacity 0.2s;
+    }
+    
+    button:hover {
+      opacity: 0.9;
+    }
+    
+    button:active {
+      transform: scale(0.98);
+    }
+    
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    
+    /* Results */
+    .results {
+      margin-top: 1.5rem;
+    }
+    
+    .result-item {
+      background: #0f172a;
+      border-radius: 8px;
+      padding: 1rem;
+      margin-bottom: 0.75rem;
+      border-left: 3px solid #3b82f6;
+    }
+    
+    .result-item .score {
+      font-size: 0.85rem;
+      color: #60a5fa;
+      margin-bottom: 0.25rem;
+    }
+    
+    .result-item .filename {
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+    }
+    
+    .result-item .fields {
+      font-size: 0.9rem;
+      color: #94a3b8;
+    }
+    
+    .result-item .field {
+      display: inline-block;
+      background: #1e293b;
+      padding: 0.25rem 0.5rem;
+      border-radius: 4px;
+      margin: 0.25rem 0.25rem 0.25rem 0;
+    }
+    
+    /* Lease List */
+    .lease-list {
+      max-height: 400px;
+      overflow-y: auto;
+    }
+    
+    .lease-item {
+      padding: 1rem;
+      background: #0f172a;
+      border-radius: 8px;
+      margin-bottom: 0.5rem;
+    }
+    
+    .lease-item .tenant {
+      font-weight: 600;
+      color: #60a5fa;
+    }
+    
+    .lease-item .address {
+      font-size: 0.9rem;
+      color: #94a3b8;
+    }
+    
+    .lease-item .meta {
+      font-size: 0.85rem;
+      margin-top: 0.5rem;
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+    
+    .lease-item .meta span {
+      background: #1e293b;
+      padding: 0.25rem 0.5rem;
+      border-radius: 4px;
+    }
+    
+    /* Stats */
+    .stats {
+      display: flex;
+      gap: 2rem;
+      justify-content: center;
+      margin-bottom: 1rem;
+    }
+    
+    .stat {
+      text-align: center;
+    }
+    
+    .stat-value {
+      font-size: 2rem;
+      font-weight: 700;
+      color: #60a5fa;
+    }
+    
+    .stat-label {
+      font-size: 0.85rem;
+      color: #94a3b8;
+    }
+    
+    /* Loading */
+    .loading {
+      text-align: center;
+      padding: 2rem;
+      color: #94a3b8;
+    }
+    
+    .spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid #334155;
+      border-top-color: #60a5fa;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 1rem;
+    }
+    
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    
+    /* Extraction Result */
+    .extraction-result {
+      margin-top: 1rem;
+      padding: 1rem;
+      background: #0f172a;
+      border-radius: 8px;
+    }
+    
+    .extraction-result h3 {
+      margin-bottom: 0.75rem;
+      color: #60a5fa;
+    }
+    
+    .extraction-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 0.5rem;
+    }
+    
+    .extraction-field {
+      padding: 0.5rem;
+      background: #1e293b;
+      border-radius: 4px;
+    }
+    
+    .extraction-field label {
+      font-size: 0.75rem;
+      color: #94a3b8;
+      text-transform: uppercase;
+    }
+    
+    .extraction-field value {
+      display: block;
+      font-weight: 500;
+    }
+    
+    /* Toast notifications */
+    .toast {
+      position: fixed;
+      bottom: 2rem;
+      right: 2rem;
+      padding: 1rem 1.5rem;
+      background: #1e293b;
+      border-radius: 8px;
+      border-left: 3px solid #22c55e;
+      animation: slideIn 0.3s ease;
+    }
+    
+    .toast.error {
+      border-left-color: #ef4444;
+    }
+    
+    @keyframes slideIn {
+      from { transform: translateX(100%); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>📄 Lease Abstraction Tool</h1>
+      <p class="subtitle">Multimodal search & extraction powered by Gemini Embedding 2</p>
+    </header>
+    
+    <div class="stats" id="stats">
+      <div class="stat">
+        <div class="stat-value" id="lease-count">-</div>
+        <div class="stat-label">Leases Indexed</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value" id="status">-</div>
+        <div class="stat-label">Status</div>
+      </div>
+    </div>
+    
+    <div class="grid">
+      <!-- Upload Section -->
+      <div class="card">
+        <h2>📤 Upload Lease</h2>
+        <div class="upload-zone" id="upload-zone">
+          <div class="upload-icon">📑</div>
+          <p>Drag & drop a lease PDF here</p>
+          <p style="color: #64748b; margin-top: 0.5rem;">or click to browse</p>
+          <input type="file" id="file-input" accept=".pdf">
+        </div>
+        <div id="upload-result"></div>
+      </div>
+      
+      <!-- Search Section -->
+      <div class="card">
+        <h2>🔍 Search Leases</h2>
+        <div class="search-box">
+          <input type="text" id="search-input" placeholder="e.g., 'leases expiring 2027' or 'NNN with CAM over $5'">
+          <button id="search-btn">Search</button>
+        </div>
+        <div class="results" id="search-results"></div>
+      </div>
+    </div>
+    
+    <!-- Indexed Leases -->
+    <div class="card" style="margin-top: 2rem;">
+      <h2>📋 Indexed Leases</h2>
+      <div class="lease-list" id="lease-list">
+        <div class="loading">
+          <div class="spinner"></div>
+          Loading leases...
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const API = '';
+    
+    // Initialize
+    async function init() {
+      await loadStats();
+      await loadLeases();
+    }
+    
+    async function loadStats() {
+      try {
+        const res = await fetch(`${API}/api/stats`);
+        const data = await res.json();
+        document.getElementById('lease-count').textContent = data.count;
+        document.getElementById('status').textContent = data.status === 'green' ? '✅' : '⏳';
+      } catch (e) {
+        document.getElementById('status').textContent = '❌';
+      }
+    }
+    
+    async function loadLeases() {
+      try {
+        const res = await fetch(`${API}/api/leases`);
+        const data = await res.json();
+        
+        const list = document.getElementById('lease-list');
+        if (data.leases.length === 0) {
+          list.innerHTML = '<p style="color: #94a3b8; text-align: center; padding: 2rem;">No leases indexed yet. Upload a PDF to get started.</p>';
+          return;
+        }
+        
+        list.innerHTML = data.leases.map(lease => `
+          <div class="lease-item">
+            <div class="tenant">${lease.tenant_name || 'Unknown Tenant'}</div>
+            <div class="address">${lease.premises_address || lease.filename}</div>
+            <div class="meta">
+              ${lease.base_rent_monthly ? `<span>💰 ${lease.base_rent_monthly}/mo</span>` : ''}
+              ${lease.square_footage ? `<span>📐 ${lease.square_footage} SF</span>` : ''}
+              ${lease.lease_type ? `<span>📋 ${lease.lease_type}</span>` : ''}
+              ${lease.lease_end_date ? `<span>📅 Ends: ${lease.lease_end_date}</span>` : ''}
+            </div>
+          </div>
+        `).join('');
+      } catch (e) {
+        document.getElementById('lease-list').innerHTML = '<p style="color: #ef4444;">Error loading leases</p>';
+      }
+    }
+    
+    // Upload handling
+    const uploadZone = document.getElementById('upload-zone');
+    const fileInput = document.getElementById('file-input');
+    
+    uploadZone.addEventListener('click', () => fileInput.click());
+    
+    uploadZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      uploadZone.classList.add('dragover');
+    });
+    
+    uploadZone.addEventListener('dragleave', () => {
+      uploadZone.classList.remove('dragover');
+    });
+    
+    uploadZone.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      uploadZone.classList.remove('dragover');
+      const file = e.dataTransfer.files[0];
+      if (file) await uploadFile(file);
+    });
+    
+    fileInput.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (file) await uploadFile(file);
+    });
+    
+    async function uploadFile(file) {
+      const resultDiv = document.getElementById('upload-result');
+      resultDiv.innerHTML = '<div class="loading"><div class="spinner"></div>Processing lease...</div>';
+      
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
+        
+        const res = await fetch(`${API}/api/upload`, {
+          method: 'POST',
+          body: formData
+        });
+        
+        const data = await res.json();
+        
+        if (data.error) throw new Error(data.error);
+        
+        resultDiv.innerHTML = `
+          <div class="extraction-result">
+            <h3>✅ Extracted from: ${data.filename}</h3>
+            <div class="extraction-grid">
+              ${Object.entries(data.fields).filter(([k,v]) => v && k !== 'key_provisions').map(([k,v]) => `
+                <div class="extraction-field">
+                  <label>${k.replace(/_/g, ' ')}</label>
+                  <value>${v}</value>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        `;
+        
+        showToast('Lease uploaded and indexed!');
+        await loadStats();
+        await loadLeases();
+        
+      } catch (e) {
+        resultDiv.innerHTML = `<p style="color: #ef4444; margin-top: 1rem;">Error: ${e.message}</p>`;
+        showToast('Upload failed: ' + e.message, true);
+      }
+    }
+    
+    // Search handling
+    const searchInput = document.getElementById('search-input');
+    const searchBtn = document.getElementById('search-btn');
+    const searchResults = document.getElementById('search-results');
+    
+    searchBtn.addEventListener('click', doSearch);
+    searchInput.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') doSearch();
+    });
+    
+    async function doSearch() {
+      const query = searchInput.value.trim();
+      if (!query) return;
+      
+      searchResults.innerHTML = '<div class="loading"><div class="spinner"></div>Searching...</div>';
+      searchBtn.disabled = true;
+      
+      try {
+        const res = await fetch(`${API}/api/search`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query, limit: 10 })
+        });
+        
+        const data = await res.json();
+        
+        if (data.results.length === 0) {
+          searchResults.innerHTML = '<p style="color: #94a3b8; padding: 1rem;">No matching leases found.</p>';
+          return;
+        }
+        
+        searchResults.innerHTML = data.results.map(r => `
+          <div class="result-item">
+            <div class="score">${(r.score * 100).toFixed(1)}% match</div>
+            <div class="filename">${r.tenant_name || r.filename}</div>
+            <div class="fields">
+              ${r.premises_address ? `<span class="field">📍 ${r.premises_address}</span>` : ''}
+              ${r.base_rent_monthly ? `<span class="field">💰 ${r.base_rent_monthly}</span>` : ''}
+              ${r.lease_type ? `<span class="field">${r.lease_type}</span>` : ''}
+            </div>
+          </div>
+        `).join('');
+        
+      } catch (e) {
+        searchResults.innerHTML = `<p style="color: #ef4444;">Search error: ${e.message}</p>`;
+      } finally {
+        searchBtn.disabled = false;
+      }
+    }
+    
+    function showToast(message, isError = false) {
+      const toast = document.createElement('div');
+      toast.className = `toast ${isError ? 'error' : ''}`;
+      toast.textContent = message;
+      document.body.appendChild(toast);
+      setTimeout(() => toast.remove(), 3000);
+    }
+    
+    // Start
+    init();
+  </script>
+</body>
+</html>

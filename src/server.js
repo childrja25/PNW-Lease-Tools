@@ -1,0 +1,365 @@
+const express = require('express');
+const multer = require('multer');
+const cors = require('cors');
+const path = require('path');
+const fs = require('fs');
+const https = require('https');
+const http = require('http');
+
+const app = express();
+app.use(cors());
+app.use(express.json());
+app.use(express.static(path.join(__dirname, '../public')));
+
+// Config
+const QDRANT_URL = process.env.QDRANT_URL || 'http://localhost:6333';
+const COLLECTION = 'leases';
+const DIMENSIONS = 768;
+const USE_VERTEX = process.env.USE_VERTEX === 'true';
+
+// File upload setup
+const storage = multer.diskStorage({
+  destination: './uploads/',
+  filename: (req, file, cb) => {
+    cb(null, `${Date.now()}-${file.originalname}`);
+  }
+});
+const upload = multer({ storage, limits: { fileSize: 50 * 1024 * 1024 } }); // 50MB max
+
+// Ensure directories exist
+['./uploads', './data'].forEach(dir => {
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+});
+
+// ===== EMBEDDING FUNCTIONS =====
+
+async function embedWithGemini(content, mimeType = null) {
+  const apiKey = process.env.GOOGLE_API_KEY;
+  if (!apiKey) throw new Error('GOOGLE_API_KEY not set');
+  
+  const model = 'gemini-embedding-2-preview';
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:embedContent?key=${apiKey}`;
+  
+  let parts;
+  if (mimeType) {
+    // Binary content (PDF, image)
+    parts = [{ inlineData: { mimeType, data: content } }];
+  } else {
+    // Text content
+    parts = [{ text: content }];
+  }
+  
+  const body = JSON.stringify({
+    model: `models/${model}`,
+    content: { parts },
+    outputDimensionality: DIMENSIONS
+  });
+
+  return new Promise((resolve, reject) => {
+    const req = https.request(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    }, res => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        if (res.statusCode !== 200) {
+          reject(new Error(`Gemini API error ${res.statusCode}: ${data}`));
+          return;
+        }
+        try {
+          const json = JSON.parse(data);
+          resolve(json.embedding?.values || []);
+        } catch (e) {
+          reject(e);
+        }
+      });
+    });
+    req.on('error', reject);
+    req.write(body);
+    req.end();
+  });
+}
+
+async function embedWithVertex(content, mimeType = null) {
+  // Vertex AI embedding - requires @google-cloud/aiplatform
+  // This keeps data within your GCP project with full compliance
+  const { PredictionServiceClient } = require('@google-cloud/aiplatform');
+  
+  const project = process.env.VERTEX_PROJECT;
+  const location = process.env.VERTEX_LOCATION || 'us-central1';
+  
+  const client = new PredictionServiceClient({
+    apiEndpoint: `${location}-aiplatform.googleapis.com`
+  });
+  
+  const endpoint = `projects/${project}/locations/${location}/publishers/google/models/multimodalembedding@001`;
+  
+  let instance;
+  if (mimeType === 'application/pdf') {
+    instance = { document: { bytesBase64Encoded: content, mimeType } };
+  } else if (mimeType?.startsWith('image/')) {
+    instance = { image: { bytesBase64Encoded: content } };
+  } else {
+    instance = { text: content };
+  }
+  
+  const [response] = await client.predict({
+    endpoint,
+    instances: [{ structValue: { fields: instance } }]
+  });
+  
+  return response.predictions[0].structValue.fields.embedding.listValue.values.map(v => v.numberValue);
+}
+
+async function embed(content, mimeType = null) {
+  if (USE_VERTEX) {
+    return embedWithVertex(content, mimeType);
+  }
+  return embedWithGemini(content, mimeType);
+}
+
+// ===== QDRANT FUNCTIONS =====
+
+function qdrantRequest(method, path, body = null) {
+  return new Promise((resolve, reject) => {
+    const url = new URL(path, QDRANT_URL);
+    const isHttps = url.protocol === 'https:';
+    const client = isHttps ? https : http;
+    
+    const options = {
+      hostname: url.hostname,
+      port: url.port || (isHttps ? 443 : 80),
+      path: url.pathname + url.search,
+      method,
+      headers: { 'Content-Type': 'application/json' }
+    };
+    
+    const req = client.request(options, res => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        try {
+          resolve(JSON.parse(data));
+        } catch {
+          resolve(data);
+        }
+      });
+    });
+    req.on('error', reject);
+    if (body) req.write(JSON.stringify(body));
+    req.end();
+  });
+}
+
+async function ensureCollection() {
+  const collections = await qdrantRequest('GET', '/collections');
+  const exists = collections.result?.collections?.some(c => c.name === COLLECTION);
+  
+  if (!exists) {
+    await qdrantRequest('PUT', `/collections/${COLLECTION}`, {
+      vectors: { size: DIMENSIONS, distance: 'Cosine' }
+    });
+    console.log(`Created collection: ${COLLECTION}`);
+  }
+}
+
+// ===== LEASE EXTRACTION =====
+
+async function extractLeaseFields(pdfPath) {
+  // Use Gemini to extract structured lease data
+  const apiKey = process.env.GOOGLE_API_KEY;
+  const pdfData = fs.readFileSync(pdfPath);
+  const base64 = pdfData.toString('base64');
+  
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+  
+  const prompt = `Extract the following fields from this commercial lease document. Return JSON only, no markdown:
+{
+  "tenant_name": "",
+  "landlord_name": "",
+  "premises_address": "",
+  "square_footage": "",
+  "lease_start_date": "",
+  "lease_end_date": "",
+  "lease_term_months": "",
+  "base_rent_monthly": "",
+  "rent_escalation": "",
+  "security_deposit": "",
+  "cam_charges": "",
+  "lease_type": "gross/modified gross/NNN/other",
+  "renewal_options": "",
+  "termination_clauses": "",
+  "permitted_use": "",
+  "key_provisions": []
+}
+
+If a field is not found, use null.`;
+
+  const body = JSON.stringify({
+    contents: [{
+      parts: [
+        { text: prompt },
+        { inlineData: { mimeType: 'application/pdf', data: base64 } }
+      ]
+    }]
+  });
+
+  return new Promise((resolve, reject) => {
+    const req = https.request(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    }, res => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        try {
+          const json = JSON.parse(data);
+          const text = json.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+          // Clean up markdown if present
+          const cleaned = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+          resolve(JSON.parse(cleaned));
+        } catch (e) {
+          console.error('Extraction error:', e.message);
+          resolve({});
+        }
+      });
+    });
+    req.on('error', reject);
+    req.write(body);
+    req.end();
+  });
+}
+
+// ===== API ROUTES =====
+
+// Health check
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', vertex: USE_VERTEX });
+});
+
+// Upload and process lease
+app.post('/api/upload', upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+    
+    await ensureCollection();
+    
+    const filePath = req.file.path;
+    const fileName = req.file.originalname;
+    
+    console.log(`Processing: ${fileName}`);
+    
+    // Read and embed PDF
+    const pdfData = fs.readFileSync(filePath);
+    const base64 = pdfData.toString('base64');
+    const vector = await embed(base64, 'application/pdf');
+    
+    // Extract lease fields
+    const fields = await extractLeaseFields(filePath);
+    
+    // Generate ID
+    const id = Date.now();
+    
+    // Store in Qdrant
+    await qdrantRequest('PUT', `/collections/${COLLECTION}/points`, {
+      points: [{
+        id,
+        vector,
+        payload: {
+          filename: fileName,
+          filepath: filePath,
+          uploaded_at: new Date().toISOString(),
+          ...fields
+        }
+      }]
+    });
+    
+    res.json({
+      success: true,
+      id,
+      filename: fileName,
+      fields
+    });
+    
+  } catch (error) {
+    console.error('Upload error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Search leases
+app.post('/api/search', async (req, res) => {
+  try {
+    const { query, type = 'text', limit = 10 } = req.body;
+    
+    let vector;
+    if (type === 'text') {
+      vector = await embed(query);
+    } else {
+      // Image/PDF search would go here
+      return res.status(400).json({ error: 'Only text search supported in this endpoint' });
+    }
+    
+    const results = await qdrantRequest('POST', `/collections/${COLLECTION}/points/search`, {
+      vector,
+      limit,
+      with_payload: true
+    });
+    
+    res.json({
+      results: results.result?.map(r => ({
+        score: r.score,
+        ...r.payload
+      })) || []
+    });
+    
+  } catch (error) {
+    console.error('Search error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// List all leases
+app.get('/api/leases', async (req, res) => {
+  try {
+    const result = await qdrantRequest('POST', `/collections/${COLLECTION}/points/scroll`, {
+      limit: 100,
+      with_payload: true
+    });
+    
+    res.json({
+      leases: result.result?.points?.map(p => ({
+        id: p.id,
+        ...p.payload
+      })) || []
+    });
+    
+  } catch (error) {
+    console.error('List error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get collection stats
+app.get('/api/stats', async (req, res) => {
+  try {
+    const info = await qdrantRequest('GET', `/collections/${COLLECTION}`);
+    res.json({
+      count: info.result?.points_count || 0,
+      status: info.result?.status || 'unknown'
+    });
+  } catch (error) {
+    res.json({ count: 0, status: 'not initialized' });
+  }
+});
+
+// Start server
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`Lease Abstraction Tool running on http://localhost:${PORT}`);
+  console.log(`Using: ${USE_VERTEX ? 'Vertex AI (enterprise)' : 'Gemini API'}`);
+  ensureCollection().catch(console.error);
+});

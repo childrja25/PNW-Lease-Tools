@@ -1,0 +1,58 @@
+COMMERCIAL LEASE AGREEMENT
+
+This Commercial Lease Agreement ("Lease") is entered into as of January 15, 2024.
+
+LANDLORD: Pacific Properties LLC
+         123 Business Center Drive
+         Portland, OR 97201
+
+TENANT:   Acme Software Solutions Inc.
+          (a Delaware corporation)
+
+PREMISES: Suite 450, Tower One
+          555 Innovation Way
+          Seattle, WA 98101
+          Approximately 5,500 rentable square feet
+
+LEASE TERM: 
+Commencement Date: March 1, 2024
+Expiration Date: February 28, 2029
+Term: Sixty (60) months
+
+BASE RENT:
+Year 1: $27,500.00 per month ($30.00 per RSF annually)
+Year 2: $28,325.00 per month (3% increase)
+Year 3: $29,175.00 per month (3% increase)
+Year 4: $30,050.00 per month (3% increase)
+Year 5: $30,952.00 per month (3% increase)
+
+LEASE TYPE: Modified Gross
+
+ADDITIONAL RENT (CAM/Operating Expenses):
+Base Year: 2024
+Tenant's Pro Rata Share: 8.5%
+Estimated CAM: $4.50 per RSF annually
+Estimated Monthly CAM Payment: $2,062.50
+
+SECURITY DEPOSIT: $55,000.00 (Two months' base rent)
+
+PERMITTED USE: General office use, software development, and related business activities.
+
+RENEWAL OPTIONS:
+Tenant shall have two (2) options to renew this Lease for additional periods of three (3) years each, upon written notice to Landlord at least 180 days prior to expiration.
+
+TERMINATION CLAUSE:
+Tenant may terminate this Lease after Month 36 with six (6) months written notice and payment of unamortized tenant improvement costs and three (3) months' rent as termination fee.
+
+TENANT IMPROVEMENTS:
+Landlord shall provide a Tenant Improvement Allowance of $45.00 per RSF ($247,500 total) for initial build-out.
+
+PARKING:
+Tenant shall have the right to use fifteen (15) unreserved parking spaces in the building garage at no additional charge.
+
+SIGNATURES:
+
+_______________________          _______________________
+Pacific Properties LLC           Acme Software Solutions Inc.
+By: John Smith, Manager          By: Jane Doe, CEO
+Date: January 15, 2024           Date: January 15, 2024
