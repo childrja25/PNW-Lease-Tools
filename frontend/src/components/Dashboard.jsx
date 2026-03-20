@@ -326,7 +326,7 @@ function LeaseTable({ leases, connected, onRefresh, onViewDetails, showToast }) 
                     <div className="flex items-center justify-end gap-2">
                       <button
                         onClick={() => onViewDetails(lease)}
-                        className="px-3 py-1.5 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded-md transition font-medium"
+                        className="px-3 py-1.5 text-xs bg-blue-600 hover:bg-blue-500 text-white rounded-full transition font-medium whitespace-nowrap"
                       >
                         View Details
                       </button>
