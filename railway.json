@@ -1,0 +1,61 @@
+{
+  "$schema": "https://railway.app/railway.schema.json",
+  "build": {
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "./Dockerfile"
+  },
+  "deploy": {
+    "startCommand": "node src/server.js",
+    "healthcheckPath": "/api/health",
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 3
+  },
+  "services": {
+    "lease-abstraction": {
+      "source": {
+        "repo": ""
+      },
+      "variables": {
+        "PORT": {
+          "description": "Port the app listens on (set automatically by Railway)",
+          "default": "3000"
+        },
+        "GOOGLE_API_KEY": {
+          "description": "Google Gemini API key for AI processing",
+          "required": true
+        },
+        "QDRANT_URL": {
+          "description": "Qdrant vector database URL",
+          "required": true,
+          "default": "${{qdrant.QDRANT_URL}}"
+        },
+        "USE_VERTEX": {
+          "description": "Set to 'true' to use Vertex AI instead of Gemini API",
+          "required": false,
+          "default": "false"
+        },
+        "VERTEX_PROJECT": {
+          "description": "Google Cloud project ID for Vertex AI",
+          "required": false
+        },
+        "VERTEX_LOCATION": {
+          "description": "Google Cloud region for Vertex AI (e.g., us-central1)",
+          "required": false,
+          "default": "us-central1"
+        },
+        "GOOGLE_APPLICATION_CREDENTIALS_JSON": {
+          "description": "Google Cloud service account JSON credentials (base64 or raw JSON)",
+          "required": false
+        }
+      }
+    },
+    "qdrant": {
+      "plugin": "qdrant",
+      "variables": {
+        "QDRANT_URL": {
+          "description": "Internal URL for the Qdrant service"
+        }
+      }
+    }
+  }
+}

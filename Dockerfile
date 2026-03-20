@@ -8,6 +8,11 @@ RUN npm install
 COPY src/ ./src/
 COPY public/ ./public/
 
-EXPOSE 3000
+# Create required runtime directories
+RUN mkdir -p uploads data
+
+# Use Railway's PORT env var, fallback to 3000
+ENV PORT=3000
+EXPOSE ${PORT}
 
 CMD ["node", "src/server.js"]

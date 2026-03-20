@@ -3,13 +3,38 @@ const multer = require('multer');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 const https = require('https');
 const http = require('http');
+
+// ===== GOOGLE CREDENTIALS SETUP =====
+// Railway users can paste their service account JSON as an env var.
+// We write it to a temp file so that the Google client libraries can find it.
+if (process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON && !process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+  try {
+    const credPath = path.join(os.tmpdir(), 'gcp-credentials.json');
+    fs.writeFileSync(credPath, process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON, 'utf8');
+    process.env.GOOGLE_APPLICATION_CREDENTIALS = credPath;
+    console.log(`Wrote GCP credentials to ${credPath}`);
+  } catch (err) {
+    console.error('Failed to write GOOGLE_APPLICATION_CREDENTIALS_JSON to temp file:', err.message);
+  }
+}
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '../public')));
+
+// ===== REQUEST LOGGING MIDDLEWARE =====
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    const duration = Date.now() - start;
+    console.log(`${req.method} ${req.path} ${res.statusCode} ${duration}ms`);
+  });
+  next();
+});
 
 // Config
 const QDRANT_URL = process.env.QDRANT_URL || 'http://localhost:6333';
@@ -36,10 +61,10 @@ const upload = multer({ storage, limits: { fileSize: 50 * 1024 * 1024 } }); // 5
 async function embedWithGemini(content, mimeType = null) {
   const apiKey = process.env.GOOGLE_API_KEY;
   if (!apiKey) throw new Error('GOOGLE_API_KEY not set');
-  
+
   const model = 'gemini-embedding-2-preview';
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:embedContent?key=${apiKey}`;
-  
+
   let parts;
   if (mimeType) {
     // Binary content (PDF, image)
@@ -48,7 +73,7 @@ async function embedWithGemini(content, mimeType = null) {
     // Text content
     parts = [{ text: content }];
   }
-  
+
   const body = JSON.stringify({
     model: `models/${model}`,
     content: { parts },
@@ -85,16 +110,16 @@ async function embedWithVertex(content, mimeType = null) {
   // Vertex AI embedding - requires @google-cloud/aiplatform
   // This keeps data within your GCP project with full compliance
   const { PredictionServiceClient } = require('@google-cloud/aiplatform');
-  
+
   const project = process.env.VERTEX_PROJECT;
   const location = process.env.VERTEX_LOCATION || 'us-central1';
-  
+
   const client = new PredictionServiceClient({
     apiEndpoint: `${location}-aiplatform.googleapis.com`
   });
-  
+
   const endpoint = `projects/${project}/locations/${location}/publishers/google/models/multimodalembedding@001`;
-  
+
   let instance;
   if (mimeType === 'application/pdf') {
     instance = { document: { bytesBase64Encoded: content, mimeType } };
@@ -103,12 +128,12 @@ async function embedWithVertex(content, mimeType = null) {
   } else {
     instance = { text: content };
   }
-  
+
   const [response] = await client.predict({
     endpoint,
     instances: [{ structValue: { fields: instance } }]
   });
-  
+
   return response.predictions[0].structValue.fields.embedding.listValue.values.map(v => v.numberValue);
 }
 
@@ -126,7 +151,7 @@ function qdrantRequest(method, path, body = null) {
     const url = new URL(path, QDRANT_URL);
     const isHttps = url.protocol === 'https:';
     const client = isHttps ? https : http;
-    
+
     const options = {
       hostname: url.hostname,
       port: url.port || (isHttps ? 443 : 80),
@@ -134,7 +159,7 @@ function qdrantRequest(method, path, body = null) {
       method,
       headers: { 'Content-Type': 'application/json' }
     };
-    
+
     const req = client.request(options, res => {
       let data = '';
       res.on('data', chunk => data += chunk);
@@ -155,12 +180,39 @@ function qdrantRequest(method, path, body = null) {
 async function ensureCollection() {
   const collections = await qdrantRequest('GET', '/collections');
   const exists = collections.result?.collections?.some(c => c.name === COLLECTION);
-  
+
   if (!exists) {
     await qdrantRequest('PUT', `/collections/${COLLECTION}`, {
       vectors: { size: DIMENSIONS, distance: 'Cosine' }
     });
     console.log(`Created collection: ${COLLECTION}`);
+  }
+}
+
+// Retry wrapper for ensureCollection - Qdrant may not be ready at startup on Railway
+async function ensureCollectionWithRetry(maxAttempts = 5, delayMs = 2000) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      await ensureCollection();
+      return;
+    } catch (err) {
+      console.warn(`Qdrant connection attempt ${attempt}/${maxAttempts} failed: ${err.message}`);
+      if (attempt === maxAttempts) {
+        throw new Error(`Failed to connect to Qdrant after ${maxAttempts} attempts: ${err.message}`);
+      }
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+    }
+  }
+}
+
+// Helper: safely delete a file (used for cleanup on upload errors)
+function cleanupFile(filePath) {
+  try {
+    if (filePath && fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+  } catch (err) {
+    console.error(`Failed to clean up file ${filePath}:`, err.message);
   }
 }
 
@@ -171,9 +223,9 @@ async function extractLeaseFields(pdfPath) {
   const apiKey = process.env.GOOGLE_API_KEY;
   const pdfData = fs.readFileSync(pdfPath);
   const base64 = pdfData.toString('base64');
-  
+
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
-  
+
   const prompt = `Extract the following fields from this commercial lease document. Return JSON only, no markdown:
 {
   "tenant_name": "",
@@ -235,34 +287,42 @@ If a field is not found, use null.`;
 
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', vertex: USE_VERTEX });
+  const health = { status: 'ok', vertex: USE_VERTEX };
+
+  if (!USE_VERTEX && !process.env.GOOGLE_API_KEY) {
+    health.status = 'misconfigured';
+    health.error = 'GOOGLE_API_KEY environment variable is not set. Set it to your Gemini API key, or set USE_VERTEX=true with proper GCP credentials for Vertex AI.';
+  }
+
+  res.json(health);
 });
 
 // Upload and process lease
 app.post('/api/upload', upload.single('file'), async (req, res) => {
+  const uploadedFilePath = req.file?.path;
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No file uploaded' });
     }
-    
+
     await ensureCollection();
-    
+
     const filePath = req.file.path;
     const fileName = req.file.originalname;
-    
+
     console.log(`Processing: ${fileName}`);
-    
+
     // Read and embed PDF
     const pdfData = fs.readFileSync(filePath);
     const base64 = pdfData.toString('base64');
     const vector = await embed(base64, 'application/pdf');
-    
+
     // Extract lease fields
     const fields = await extractLeaseFields(filePath);
-    
+
     // Generate ID
     const id = Date.now();
-    
+
     // Store in Qdrant
     await qdrantRequest('PUT', `/collections/${COLLECTION}/points`, {
       points: [{
@@ -276,16 +336,17 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
         }
       }]
     });
-    
+
     res.json({
       success: true,
       id,
       filename: fileName,
       fields
     });
-    
+
   } catch (error) {
     console.error('Upload error:', error);
+    cleanupFile(uploadedFilePath);
     res.status(500).json({ error: error.message });
   }
 });
@@ -294,7 +355,7 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
 app.post('/api/search', async (req, res) => {
   try {
     const { query, type = 'text', limit = 10 } = req.body;
-    
+
     let vector;
     if (type === 'text') {
       vector = await embed(query);
@@ -302,20 +363,20 @@ app.post('/api/search', async (req, res) => {
       // Image/PDF search would go here
       return res.status(400).json({ error: 'Only text search supported in this endpoint' });
     }
-    
+
     const results = await qdrantRequest('POST', `/collections/${COLLECTION}/points/search`, {
       vector,
       limit,
       with_payload: true
     });
-    
+
     res.json({
       results: results.result?.map(r => ({
         score: r.score,
         ...r.payload
       })) || []
     });
-    
+
   } catch (error) {
     console.error('Search error:', error);
     res.status(500).json({ error: error.message });
@@ -329,16 +390,39 @@ app.get('/api/leases', async (req, res) => {
       limit: 100,
       with_payload: true
     });
-    
+
     res.json({
       leases: result.result?.points?.map(p => ({
         id: p.id,
         ...p.payload
       })) || []
     });
-    
+
   } catch (error) {
     console.error('List error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Delete a lease
+app.delete('/api/leases/:id', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (isNaN(id)) {
+      return res.status(400).json({ error: 'Invalid lease ID' });
+    }
+
+    const result = await qdrantRequest('POST', `/collections/${COLLECTION}/points/delete`, {
+      points: [id]
+    });
+
+    if (result.status === 'ok' || result.result === true) {
+      res.json({ success: true, id });
+    } else {
+      res.status(500).json({ error: 'Failed to delete lease', details: result });
+    }
+  } catch (error) {
+    console.error('Delete error:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -361,5 +445,8 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Lease Abstraction Tool running on http://localhost:${PORT}`);
   console.log(`Using: ${USE_VERTEX ? 'Vertex AI (enterprise)' : 'Gemini API'}`);
-  ensureCollection().catch(console.error);
+  ensureCollectionWithRetry().catch(err => {
+    console.error('Qdrant initialization failed:', err.message);
+    console.error('The server will continue running - Qdrant operations will be attempted on each request.');
+  });
 });
