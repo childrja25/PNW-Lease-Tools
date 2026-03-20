@@ -67,6 +67,7 @@ app.use((req, res, next) => {
 // Config
 const QDRANT_URL = process.env.QDRANT_URL || 'http://localhost:6333';
 const COLLECTION = 'leases';
+const EMBEDDING_MODEL = 'gemini-embedding-002';
 const DIMENSIONS = 768;
 const USE_VERTEX = process.env.USE_VERTEX === 'true';
 
@@ -90,10 +91,9 @@ async function embedWithGemini(content, mimeType = null) {
   const apiKey = process.env.GOOGLE_API_KEY;
   if (!apiKey) throw new Error('GOOGLE_API_KEY not set');
 
-  const model = 'gemini-embedding-001';
+  const model = EMBEDDING_MODEL;
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:embedContent?key=${apiKey}`;
 
-  // gemini-embedding-001 is text-only
   const parts = [{ text: typeof content === 'string' ? content : String(content) }];
 
   const body = JSON.stringify({
@@ -203,11 +203,23 @@ async function ensureCollection() {
   const collections = await qdrantRequest('GET', '/collections');
   const exists = collections.result?.collections?.some(c => c.name === COLLECTION);
 
-  if (!exists) {
+  if (exists) {
+    // Check if existing collection has the correct dimensions
+    const info = await qdrantRequest('GET', `/collections/${COLLECTION}`);
+    const currentSize = info.result?.config?.params?.vectors?.size;
+    if (currentSize && currentSize !== DIMENSIONS) {
+      console.log(`Collection dimension mismatch (has ${currentSize}, need ${DIMENSIONS}). Recreating collection...`);
+      await qdrantRequest('DELETE', `/collections/${COLLECTION}`);
+      await qdrantRequest('PUT', `/collections/${COLLECTION}`, {
+        vectors: { size: DIMENSIONS, distance: 'Cosine' }
+      });
+      console.log(`Recreated collection: ${COLLECTION} with ${DIMENSIONS} dimensions (${EMBEDDING_MODEL})`);
+    }
+  } else {
     await qdrantRequest('PUT', `/collections/${COLLECTION}`, {
       vectors: { size: DIMENSIONS, distance: 'Cosine' }
     });
-    console.log(`Created collection: ${COLLECTION}`);
+    console.log(`Created collection: ${COLLECTION} with ${DIMENSIONS} dimensions (${EMBEDDING_MODEL})`);
   }
 }
 
