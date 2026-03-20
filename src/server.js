@@ -24,6 +24,31 @@ if (process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON && !process.env.GOOGLE_APPLI
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+// ===== BASIC AUTH MIDDLEWARE =====
+const AUTH_USER = process.env.AUTH_USERNAME;
+const AUTH_PASS = process.env.AUTH_PASSWORD;
+
+if (AUTH_USER && AUTH_PASS) {
+  app.use((req, res, next) => {
+    const header = req.headers.authorization;
+    if (!header || !header.startsWith('Basic ')) {
+      res.set('WWW-Authenticate', 'Basic realm="Lease Abstraction Tool"');
+      return res.status(401).send('Authentication required');
+    }
+    const credentials = Buffer.from(header.split(' ')[1], 'base64').toString();
+    const [user, pass] = credentials.split(':');
+    if (user === AUTH_USER && pass === AUTH_PASS) {
+      return next();
+    }
+    res.set('WWW-Authenticate', 'Basic realm="Lease Abstraction Tool"');
+    return res.status(401).send('Invalid credentials');
+  });
+  console.log('Basic auth enabled');
+} else {
+  console.log('WARNING: No AUTH_USERNAME/AUTH_PASSWORD set — app is publicly accessible');
+}
+
 app.use(express.static(path.join(__dirname, '../public')));
 
 // ===== REQUEST LOGGING MIDDLEWARE =====
