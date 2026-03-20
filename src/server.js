@@ -246,7 +246,7 @@ async function extractLeaseFields(pdfPath) {
   const pdfData = fs.readFileSync(pdfPath);
   const base64 = pdfData.toString('base64');
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
 
   const prompt = `Extract the following fields from this commercial lease document. Return JSON only, no markdown:
 {
@@ -288,6 +288,11 @@ If a field is not found, use null.`;
       res.on('data', chunk => data += chunk);
       res.on('end', () => {
         try {
+          if (res.statusCode !== 200) {
+            console.error(`Gemini extraction API error ${res.statusCode}: ${data.substring(0, 500)}`);
+            reject(new Error(`Gemini extraction failed (${res.statusCode}). Check API quota/billing.`));
+            return;
+          }
           const json = JSON.parse(data);
           const text = json.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
           // Clean up markdown if present
