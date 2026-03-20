@@ -5,10 +5,11 @@ function toTitleCase(str) {
 }
 
 const FIELD_GROUPS = {
-  'General Info': ['tenant_name', 'landlord_name', 'lease_type', 'premises_address', 'permitted_use'],
-  'Financials': ['base_rent_monthly', 'rent_escalation', 'security_deposit', 'cam_charges'],
-  'Important Dates': ['lease_start_date', 'lease_end_date', 'lease_term_months', 'renewal_options'],
-  'Clauses': ['termination_clauses', 'key_provisions'],
+  'General Info': ['tenant_name', 'property_address', 'building_name', 'suite_number', 'rentable_square_footage', 'signing_entity', 'lease_guarantor'],
+  'Rent & Expenses': ['base_rent_schedule', 'expense_recovery_type', 'base_year', 'tenant_improvement_allowance', 'management_fee_cap', 'expense_gross_up_pct', 'pro_rata_share', 'building_denominator', 'expense_exclusions'],
+  'Dates & Term': ['lease_commencement_date', 'rent_commencement_date', 'lease_term'],
+  'Options & Rights': ['renewal_options', 'termination_options', 'right_of_first_offer', 'right_of_first_refusal', 'right_of_purchase_offer'],
+  'Use & Other': ['permitted_uses', 'exclusive_uses', 'parking_rights', 'letter_of_credit'],
 };
 
 export default function LeaseDetail({ lease, onBack, showToast }) {
@@ -74,49 +75,66 @@ export default function LeaseDetail({ lease, onBack, showToast }) {
             <div className="bg-white rounded-lg shadow-xl p-8 text-black min-h-[600px]">
               <h2 className="text-center font-bold text-lg mb-6">COMMERCIAL LEASE AGREEMENT</h2>
               <div className="space-y-4 text-sm leading-relaxed">
-                {lease.tenant_name && lease.landlord_name && (
+                {lease.tenant_name && (
                   <p>
-                    The Lease Agreement shall use a Commercial lease Agreement, the ("Lease"), between{' '}
-                    <span className="bg-yellow-200 px-0.5">{lease.landlord_name}</span> and{' '}
-                    <span className="bg-yellow-200 px-0.5">{lease.tenant_name}</span>.
+                    Tenant: <span className="bg-yellow-200 px-0.5">{lease.tenant_name}</span>
+                    {lease.signing_entity && <> (Signing Entity: <span className="bg-yellow-200 px-0.5">{lease.signing_entity}</span>)</>}
                   </p>
                 )}
-                {lease.lease_start_date && lease.lease_end_date && (
+                {lease.property_address && (
+                  <p>
+                    Property: <span className="bg-yellow-200 px-0.5">{lease.property_address}</span>
+                    {lease.building_name && <>, <span className="bg-yellow-200 px-0.5">{lease.building_name}</span></>}
+                    {lease.suite_number && <>, Suite <span className="bg-yellow-200 px-0.5">{lease.suite_number}</span></>}
+                  </p>
+                )}
+                {lease.rentable_square_footage && (
+                  <p>
+                    Rentable Area: <span className="bg-yellow-200 px-0.5">{lease.rentable_square_footage}</span> SF
+                  </p>
+                )}
+                {lease.lease_commencement_date && (
                   <>
-                    <p className="font-bold mt-4">Article 5: Term</p>
+                    <p className="font-bold mt-4">Term</p>
                     <p>
-                      The Lease Term shall commence on{' '}
-                      <span className="bg-yellow-200 px-0.5">{lease.lease_start_date}</span>{' '}
-                      (the "Commencement Date") and expire on{' '}
-                      <span className="bg-yellow-200 px-0.5">{lease.lease_end_date}</span>{' '}
-                      (the "Expiration Date").
+                      Lease commences <span className="bg-yellow-200 px-0.5">{lease.lease_commencement_date}</span>
+                      {lease.lease_term && <> for a term of <span className="bg-yellow-200 px-0.5">{lease.lease_term}</span></>}.
+                      {lease.rent_commencement_date && <> Rent commences <span className="bg-yellow-200 px-0.5">{lease.rent_commencement_date}</span>.</>}
                     </p>
                   </>
                 )}
-                {lease.base_rent_monthly && (
+                {Array.isArray(lease.base_rent_schedule) && lease.base_rent_schedule.length > 0 && (
                   <>
-                    <p className="font-bold mt-4">Article 3: Rent</p>
-                    <p>
-                      The Base Rent for the Premises shall be{' '}
-                      <span className="font-bold bg-yellow-200 px-0.5">
-                        ${lease.base_rent_monthly} per month
-                      </span>
-                      {lease.rent_escalation ? `, subject to ${lease.rent_escalation}.` : '.'}
-                    </p>
+                    <p className="font-bold mt-4">Base Rent Schedule</p>
+                    <table className="w-full border-collapse text-xs mt-2">
+                      <thead>
+                        <tr className="bg-gray-100">
+                          <th className="border border-gray-300 px-2 py-1 text-left">Period</th>
+                          <th className="border border-gray-300 px-2 py-1 text-right">Annual Rent</th>
+                          <th className="border border-gray-300 px-2 py-1 text-right">Monthly Rent</th>
+                          <th className="border border-gray-300 px-2 py-1 text-right">Rent PSF</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {lease.base_rent_schedule.map((row, i) => (
+                          <tr key={i} className="bg-yellow-50">
+                            <td className="border border-gray-300 px-2 py-1">{row.period}</td>
+                            <td className="border border-gray-300 px-2 py-1 text-right">{row.annual_rent}</td>
+                            <td className="border border-gray-300 px-2 py-1 text-right">{row.monthly_rent}</td>
+                            <td className="border border-gray-300 px-2 py-1 text-right">{row.rent_psf}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </>
                 )}
-                {lease.security_deposit && (
+                {lease.expense_recovery_type && (
                   <p>
-                    Security Deposit: <span className="bg-yellow-200 px-0.5">${lease.security_deposit}</span>
+                    Expense Recovery: <span className="bg-yellow-200 px-0.5">{lease.expense_recovery_type}</span>
+                    {lease.base_year && <> (Base Year: <span className="bg-yellow-200 px-0.5">{lease.base_year}</span>)</>}
                   </p>
                 )}
-                {lease.square_footage && (
-                  <p>
-                    The Premises consists of approximately{' '}
-                    <span className="bg-yellow-200 px-0.5">{lease.square_footage}</span> square feet.
-                  </p>
-                )}
-                {(!lease.tenant_name && !lease.base_rent_monthly) && (
+                {(!lease.tenant_name && !lease.base_rent_schedule) && (
                   <p className="text-gray-400 italic text-center py-12">
                     Document preview is based on extracted data.
                     <br />Upload the original PDF for full document viewing.
@@ -154,6 +172,39 @@ export default function LeaseDetail({ lease, onBack, showToast }) {
             <div className="space-y-2">
               {FIELD_GROUPS[activeSection]?.map(fieldKey => {
                 const value = lease[fieldKey];
+
+                if (fieldKey === 'base_rent_schedule' && Array.isArray(value) && value.length > 0) {
+                  return (
+                    <div key={fieldKey} className="bg-navy-700 rounded-lg p-3 border border-gray-700/50">
+                      <div className="text-[10px] uppercase tracking-wider text-gray-500 font-medium mb-2">
+                        Base Rent Schedule
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs">
+                          <thead>
+                            <tr className="text-gray-500 border-b border-gray-600">
+                              <th className="text-left pb-1 pr-2">Period</th>
+                              <th className="text-right pb-1 pr-2">Annual</th>
+                              <th className="text-right pb-1 pr-2">Monthly</th>
+                              <th className="text-right pb-1">PSF</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {value.map((row, i) => (
+                              <tr key={i} className="text-white border-b border-gray-700/30">
+                                <td className="py-1 pr-2">{row.period}</td>
+                                <td className="py-1 pr-2 text-right">{row.annual_rent}</td>
+                                <td className="py-1 pr-2 text-right">{row.monthly_rent}</td>
+                                <td className="py-1 text-right">{row.rent_psf}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  );
+                }
+
                 const displayValue = Array.isArray(value) ? value.join(', ') : value;
                 const confidence = value ? Math.floor(Math.random() * 15 + 85) : 0;
 

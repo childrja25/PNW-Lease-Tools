@@ -251,24 +251,36 @@ async function extractLeaseFields(pdfPath) {
   const prompt = `Extract the following fields from this commercial lease document. Return JSON only, no markdown:
 {
   "tenant_name": "",
-  "landlord_name": "",
-  "premises_address": "",
-  "square_footage": "",
-  "lease_start_date": "",
-  "lease_end_date": "",
-  "lease_term_months": "",
-  "base_rent_monthly": "",
-  "rent_escalation": "",
-  "security_deposit": "",
-  "cam_charges": "",
-  "lease_type": "gross/modified gross/NNN/other",
+  "property_address": "",
+  "building_name": "",
+  "suite_number": "",
+  "rentable_square_footage": "",
+  "lease_commencement_date": "",
+  "rent_commencement_date": "",
+  "lease_term": "",
+  "base_rent_schedule": [{"period": "", "annual_rent": "", "monthly_rent": "", "rent_psf": ""}],
+  "tenant_improvement_allowance": "",
+  "termination_options": "",
+  "parking_rights": "",
   "renewal_options": "",
-  "termination_clauses": "",
-  "permitted_use": "",
-  "key_provisions": []
+  "right_of_first_offer": "",
+  "right_of_first_refusal": "",
+  "right_of_purchase_offer": "",
+  "expense_recovery_type": "gross/modified gross/NNN/other",
+  "base_year": "",
+  "management_fee_cap": "",
+  "lease_guarantor": "",
+  "letter_of_credit": "",
+  "signing_entity": "",
+  "expense_gross_up_pct": "",
+  "pro_rata_share": "",
+  "building_denominator": "",
+  "permitted_uses": "",
+  "exclusive_uses": "",
+  "expense_exclusions": ""
 }
 
-If a field is not found, use null.`;
+For base_rent_schedule, include ALL rows from any rent schedule table in the lease (each period/step with its annual rent, monthly rent, and rent per square foot). If a field is not found, use null.`;
 
   const body = JSON.stringify({
     contents: [{

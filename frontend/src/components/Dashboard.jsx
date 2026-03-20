@@ -244,9 +244,9 @@ function SearchCard({ disabled, showToast }) {
                 <div className="text-blue-400 text-xs mb-1">{(r.score * 100).toFixed(1)}% match</div>
                 <div className="text-white font-medium text-sm">{r.tenant_name || r.filename}</div>
                 <div className="flex gap-1.5 mt-2 flex-wrap">
-                  {r.premises_address && <span className="text-xs bg-navy-600 text-gray-300 px-2 py-0.5 rounded">{r.premises_address}</span>}
-                  {r.base_rent_monthly && <span className="text-xs bg-navy-600 text-gray-300 px-2 py-0.5 rounded">${r.base_rent_monthly}</span>}
-                  {r.lease_type && <span className="text-xs bg-navy-600 text-gray-300 px-2 py-0.5 rounded">{r.lease_type}</span>}
+                  {r.property_address && <span className="text-xs bg-navy-600 text-gray-300 px-2 py-0.5 rounded">{r.property_address}</span>}
+                  {r.rentable_square_footage && <span className="text-xs bg-navy-600 text-gray-300 px-2 py-0.5 rounded">{r.rentable_square_footage} SF</span>}
+                  {r.expense_recovery_type && <span className="text-xs bg-navy-600 text-gray-300 px-2 py-0.5 rounded">{r.expense_recovery_type}</span>}
                 </div>
               </div>
             ))
@@ -298,24 +298,27 @@ function LeaseTable({ leases, connected, onRefresh, onViewDetails, showToast }) 
                 <tr key={lease.id || i} className="group hover:bg-navy-600/30 transition">
                   <td className="py-3 pr-4">
                     <div className="text-white font-medium">{lease.tenant_name || 'Unknown Tenant'}</div>
-                    <div className="text-gray-500 text-xs">{lease.premises_address || lease.filename}</div>
+                    <div className="text-gray-500 text-xs">{lease.property_address || lease.filename}</div>
                   </td>
                   <td className="py-3 pr-4 hidden md:table-cell">
                     <div className="text-gray-400 text-xs max-w-[250px]">
-                      {lease.base_rent_monthly ? `Stepped rent starting at $${lease.base_rent_monthly}` : ''}
-                      {lease.rent_escalation ? ` with ${lease.rent_escalation}` : ''}
+                      {Array.isArray(lease.base_rent_schedule) && lease.base_rent_schedule.length > 0
+                        ? `Rent starting at ${lease.base_rent_schedule[0].monthly_rent}/mo`
+                        : ''}
                     </div>
                   </td>
                   <td className="py-3 pr-4 hidden lg:table-cell">
                     <div className="flex gap-1 flex-wrap">
-                      {lease.square_footage && <span className="text-[10px] bg-navy-500 text-gray-300 px-1.5 py-0.5 rounded">{lease.square_footage} SF</span>}
-                      {lease.lease_type && <span className="text-[10px] bg-navy-500 text-gray-300 px-1.5 py-0.5 rounded">{lease.lease_type}</span>}
+                      {lease.rentable_square_footage && <span className="text-[10px] bg-navy-500 text-gray-300 px-1.5 py-0.5 rounded">{lease.rentable_square_footage} SF</span>}
+                      {lease.expense_recovery_type && <span className="text-[10px] bg-navy-500 text-gray-300 px-1.5 py-0.5 rounded">{lease.expense_recovery_type}</span>}
                     </div>
                   </td>
                   <td className="py-3 pr-4">
                     <div className="text-xs text-gray-400">
-                      {lease.lease_end_date ? (
-                        <>Ends:<br />{lease.lease_end_date}</>
+                      {lease.lease_term ? (
+                        <>{lease.lease_term}</>
+                      ) : lease.lease_commencement_date ? (
+                        <>From: {lease.lease_commencement_date}</>
                       ) : '-'}
                     </div>
                   </td>
