@@ -31,6 +31,9 @@ const AUTH_PASS = process.env.AUTH_PASSWORD;
 
 if (AUTH_USER && AUTH_PASS) {
   app.use((req, res, next) => {
+    // Skip auth for health check (Railway needs this for deployment)
+    if (req.path === '/api/health') return next();
+
     const header = req.headers.authorization;
     if (!header || !header.startsWith('Basic ')) {
       res.set('WWW-Authenticate', 'Basic realm="Lease Abstraction Tool"');
