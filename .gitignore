@@ -11,3 +11,7 @@ logs/
 Thumbs.db
 dist/
 tmp/
+
+# Frontend build output (rebuilt from frontend/ source)
+public/assets/
+public/index.html

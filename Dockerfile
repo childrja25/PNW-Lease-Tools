@@ -2,11 +2,15 @@ FROM node:20-slim
 
 WORKDIR /app
 
+# Install backend dependencies
 COPY package*.json ./
 RUN npm install
 
+# Build frontend
+COPY frontend/ ./frontend/
+RUN cd frontend && npm install && npm run build
+
 COPY src/ ./src/
-COPY public/ ./public/
 
 # Create required runtime directories
 RUN mkdir -p uploads data
