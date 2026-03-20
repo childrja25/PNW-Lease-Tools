@@ -90,17 +90,11 @@ async function embedWithGemini(content, mimeType = null) {
   const apiKey = process.env.GOOGLE_API_KEY;
   if (!apiKey) throw new Error('GOOGLE_API_KEY not set');
 
-  const model = 'gemini-embedding-2-preview';
+  const model = 'gemini-embedding-001';
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:embedContent?key=${apiKey}`;
 
-  let parts;
-  if (mimeType) {
-    // Binary content (PDF, image)
-    parts = [{ inlineData: { mimeType, data: content } }];
-  } else {
-    // Text content
-    parts = [{ text: content }];
-  }
+  // gemini-embedding-001 is text-only
+  const parts = [{ text: typeof content === 'string' ? content : String(content) }];
 
   const body = JSON.stringify({
     model: `models/${model}`,
@@ -340,13 +334,15 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
 
     console.log(`Processing: ${fileName}`);
 
-    // Read and embed PDF
-    const pdfData = fs.readFileSync(filePath);
-    const base64 = pdfData.toString('base64');
-    const vector = await embed(base64, 'application/pdf');
-
-    // Extract lease fields
+    // Extract lease fields first
     const fields = await extractLeaseFields(filePath);
+
+    // Build text summary for embedding (text-only — the embedding model doesn't accept PDFs)
+    const textForEmbedding = Object.entries(fields)
+      .filter(([, v]) => v != null)
+      .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(', ') : v}`)
+      .join('\n');
+    const vector = await embed(textForEmbedding || `lease ${fileName}`);
 
     // Generate ID
     const id = Date.now();
