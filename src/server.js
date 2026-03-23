@@ -67,7 +67,7 @@ app.use((req, res, next) => {
 // Config
 const QDRANT_URL = process.env.QDRANT_URL || 'http://localhost:6333';
 const COLLECTION = 'leases';
-const EMBEDDING_MODEL = 'text-embedding-004';
+const EMBEDDING_MODEL = 'gemini-embedding-002';
 const DIMENSIONS = 768;
 const USE_VERTEX = process.env.USE_VERTEX === 'true';
 
@@ -92,7 +92,7 @@ async function embedWithGemini(content, mimeType = null) {
   if (!apiKey) throw new Error('GOOGLE_API_KEY not set');
 
   const model = EMBEDDING_MODEL;
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:embedContent?key=${apiKey}`;
+  const url = `https://generativelanguage.googleapis.com/v1/models/${model}:embedContent?key=${apiKey}`;
 
   const parts = [{ text: typeof content === 'string' ? content : String(content) }];
 
