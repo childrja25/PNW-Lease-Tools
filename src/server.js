@@ -67,7 +67,7 @@ app.use((req, res, next) => {
 // Config
 const QDRANT_URL = process.env.QDRANT_URL || 'http://localhost:6333';
 const COLLECTION = 'leases';
-const EMBEDDING_MODEL = 'gemini-embedding-002';
+const EMBEDDING_MODEL = 'gemini-embedding-2-preview';
 const DIMENSIONS = 768;
 const USE_VERTEX = process.env.USE_VERTEX === 'true';
 
