@@ -92,7 +92,7 @@ async function embedWithGemini(content, mimeType = null) {
   if (!apiKey) throw new Error('GOOGLE_API_KEY not set');
 
   const model = EMBEDDING_MODEL;
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:embedContent?key=${apiKey}`;
+  const url = `https://generativelanguage.googleapis.com/v1/models/${model}:embedContent?key=${apiKey}`;
 
   const parts = [{ text: typeof content === 'string' ? content : String(content) }];
 
