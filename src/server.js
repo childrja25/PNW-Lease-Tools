@@ -258,7 +258,7 @@ async function extractLeaseFields(pdfPath) {
   const pdfData = fs.readFileSync(pdfPath);
   const base64 = pdfData.toString('base64');
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+  const url = `https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
 
   const prompt = `Extract the following fields from this commercial lease document. Return JSON only, no markdown:
 {
