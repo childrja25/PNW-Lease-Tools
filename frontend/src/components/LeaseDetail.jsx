@@ -4,6 +4,14 @@ function toTitleCase(str) {
   return str.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 }
 
+function safeStr(val) {
+  if (val == null) return '';
+  if (typeof val === 'string') return val;
+  if (typeof val === 'number') return String(val);
+  if (Array.isArray(val)) return val.map(safeStr).join(', ');
+  return JSON.stringify(val);
+}
+
 const FIELD_GROUPS = {
   'General Info': ['tenant_name', 'lease_type', 'building_name', 'building_address', 'property_address', 'suite_number', 'rentable_square_footage', 'signing_entity', 'lease_guarantor'],
   'Financials': ['base_rent_schedule', 'base_rent_amount', 'expense_recovery_type', 'base_year', 'tenant_improvement_allowance', 'management_fee_cap', 'expense_gross_up_pct', 'pro_rata_share', 'building_denominator', 'expense_exclusions'],
@@ -115,7 +123,7 @@ export default function LeaseDetail({ lease, onBack, showToast }) {
                 {lease.tenant_name && (
                   <p>
                     The Lease Agreement shall use a Commercial lease Agreement, the ("Landlord"
-                    {lease.signing_entity && <> Make {lease.signing_entity}</>}
+                    {lease.signing_entity && <> Make {safeStr(lease.signing_entity)}</>}
                     {' '}and {' '}
                     <span className="bg-yellow-200 px-0.5 font-medium">{lease.tenant_name}</span>
                     ) January 1, 2024, the commencement of the Premises or
@@ -160,8 +168,8 @@ export default function LeaseDetail({ lease, onBack, showToast }) {
 
                 {lease.expense_recovery_type && (
                   <p>
-                    Expense Recovery: <span className="bg-yellow-200 px-0.5">{lease.expense_recovery_type}</span>
-                    {lease.base_year && <> (Base Year: <span className="bg-yellow-200 px-0.5">{lease.base_year}</span>)</>}
+                    Expense Recovery: <span className="bg-yellow-200 px-0.5">{safeStr(lease.expense_recovery_type)}</span>
+                    {lease.base_year && <> (Base Year: <span className="bg-yellow-200 px-0.5">{safeStr(lease.base_year)}</span>)</>}
                   </p>
                 )}
 
@@ -261,7 +269,7 @@ export default function LeaseDetail({ lease, onBack, showToast }) {
                       );
                     }
 
-                    const displayValue = Array.isArray(value) ? value.join(', ') : value;
+                    const displayValue = safeStr(value);
                     const confidence = getConfidence(fieldKey);
 
                     return (
