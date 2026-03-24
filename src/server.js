@@ -260,7 +260,7 @@ async function extractLeaseFields(pdfPath) {
 
   const url = `https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
 
-  const prompt = `Extract the following fields from this commercial lease document. Return JSON only, no markdown:
+  const prompt = `Extract the following fields from this commercial lease document. For each field, also provide a citation with the page number and a short verbatim quote from the source text that supports the extracted value. Return JSON only, no markdown:
 {
   "tenant_name": "",
   "property_address": "",
@@ -289,10 +289,16 @@ async function extractLeaseFields(pdfPath) {
   "building_denominator": "",
   "permitted_uses": "",
   "exclusive_uses": "",
-  "expense_exclusions": ""
+  "expense_exclusions": "",
+  "_citations": {
+    "tenant_name": {"page": 1, "quote": "short verbatim excerpt"},
+    "property_address": {"page": 1, "quote": "short verbatim excerpt"}
+  }
 }
 
-For base_rent_schedule, include ALL rows from any rent schedule table in the lease (each period/step with its annual rent, monthly rent, and rent per square foot). If a field is not found, use null.`;
+For base_rent_schedule, include ALL rows from any rent schedule table in the lease (each period/step with its annual rent, monthly rent, and rent per square foot). If a field is not found, use null.
+
+For _citations, provide an entry for EVERY field that has a non-null value. "page" is the PDF page number (1-based) where the information was found. "quote" is a short verbatim excerpt (under 120 chars) from the lease text that directly supports the extracted value. For base_rent_schedule, cite the page where the rent table begins.`;
 
   const body = JSON.stringify({
     contents: [{

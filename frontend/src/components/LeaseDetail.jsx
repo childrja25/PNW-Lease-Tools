@@ -221,6 +221,8 @@ export default function LeaseDetail({ lease, onBack, showToast }) {
                   {fields.map(fieldKey => {
                     const value = lease[fieldKey];
 
+                    const citation = lease._citations?.[fieldKey];
+
                     if (fieldKey === 'base_rent_schedule' && Array.isArray(value) && value.length > 0) {
                       return (
                         <div key={fieldKey} className="bg-navy-700 rounded-lg p-3 border border-gray-700/50">
@@ -228,7 +230,10 @@ export default function LeaseDetail({ lease, onBack, showToast }) {
                             <span className="text-[10px] uppercase tracking-wider text-gray-500 font-medium">
                               Base Rent Schedule
                             </span>
-                            <ConfidenceBadge confidence={getConfidence(fieldKey)} />
+                            <div className="flex items-center gap-2">
+                              {citation && <CitationTag citation={citation} />}
+                              <ConfidenceBadge confidence={getConfidence(fieldKey)} />
+                            </div>
                           </div>
                           <div className="overflow-x-auto">
                             <table className="w-full text-xs">
@@ -265,11 +270,19 @@ export default function LeaseDetail({ lease, onBack, showToast }) {
                           <span className="text-[10px] uppercase tracking-wider text-gray-500 font-medium">
                             {toTitleCase(fieldKey)}
                           </span>
-                          {value && <ConfidenceBadge confidence={confidence} />}
+                          <div className="flex items-center gap-2">
+                            {citation && <CitationTag citation={citation} />}
+                            {value && <ConfidenceBadge confidence={confidence} />}
+                          </div>
                         </div>
                         <div className={`text-sm ${value ? 'text-white' : 'text-gray-600 italic'}`}>
                           {displayValue || 'Not found'}
                         </div>
+                        {citation?.quote && (
+                          <div className="mt-1 text-[11px] text-gray-500 italic border-l-2 border-gray-600 pl-2 leading-snug">
+                            "{citation.quote}"
+                          </div>
+                        )}
                       </div>
                     );
                   })}
@@ -293,6 +306,18 @@ export default function LeaseDetail({ lease, onBack, showToast }) {
         </div>
       </div>
     </div>
+  );
+}
+
+function CitationTag({ citation }) {
+  if (!citation?.page) return null;
+  return (
+    <span
+      className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 cursor-default"
+      title={citation.quote || ''}
+    >
+      p.{citation.page}
+    </span>
   );
 }
 
