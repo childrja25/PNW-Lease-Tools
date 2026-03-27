@@ -250,6 +250,87 @@ function cleanupFile(filePath) {
   }
 }
 
+// ===== CLAUDE REVIEW & RECONCILIATION =====
+
+function claudeRequest(messages, maxTokens = 4096) {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set');
+
+  const body = JSON.stringify({
+    model: 'claude-sonnet-4-20250514',
+    max_tokens: maxTokens,
+    messages
+  });
+
+  return new Promise((resolve, reject) => {
+    const req = https.request('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01'
+      }
+    }, res => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        try {
+          if (res.statusCode !== 200) {
+            reject(new Error(`Claude API error ${res.statusCode}: ${data.substring(0, 500)}`));
+            return;
+          }
+          const json = JSON.parse(data);
+          const text = json.content?.[0]?.text || '{}';
+          const cleaned = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+          resolve(JSON.parse(cleaned));
+        } catch (e) {
+          reject(new Error(`Claude response parse error: ${e.message}`));
+        }
+      });
+    });
+    req.on('error', reject);
+    req.write(body);
+    req.end();
+  });
+}
+
+async function reconcileAmendment(originalTerms, amendmentFields, amendmentFilename) {
+  const prompt = `You are a commercial real estate lease analyst. You are given the current lease terms (JSON) and newly extracted fields from a lease amendment document.
+
+Your job:
+1. Compare the amendment fields against the current lease terms.
+2. Identify which terms the amendment modifies, adds, or removes.
+3. Produce a changelog of every change.
+4. Produce the updated "current_terms" reflecting all changes from the amendment applied on top of the original.
+
+Rules:
+- Only include a field in the changelog if the amendment actually changes it.
+- If the amendment field is null or empty, it means the amendment does not address that term — do NOT treat it as a removal.
+- For base_rent_schedule, compare row-by-row. If the amendment provides a new schedule, replace the entire schedule and note the change.
+- Be precise: use the exact field names from the original terms.
+
+Return JSON only, no markdown:
+{
+  "current_terms": { ...all fields with amendment changes applied... },
+  "changelog": [
+    {
+      "field": "field_name",
+      "previous_value": "old value or null",
+      "new_value": "new value",
+      "summary": "Brief plain-English description of what changed"
+    }
+  ]
+}
+
+CURRENT LEASE TERMS:
+${JSON.stringify(originalTerms, null, 2)}
+
+AMENDMENT EXTRACTED FIELDS (from "${amendmentFilename}"):
+${JSON.stringify(amendmentFields, null, 2)}`;
+
+  return claudeRequest([{ role: 'user', content: prompt }]);
+}
+
 // ===== LEASE EXTRACTION =====
 
 async function extractLeaseFields(pdfPath) {
@@ -405,6 +486,120 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
 
   } catch (error) {
     console.error('Upload error:', error);
+    cleanupFile(uploadedFilePath);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Upload amendment for an existing lease
+app.post('/api/leases/:id/amendments', upload.single('file'), async (req, res) => {
+  const uploadedFilePath = req.file?.path;
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    const leaseId = parseInt(req.params.id, 10);
+    if (isNaN(leaseId)) {
+      return res.status(400).json({ error: 'Invalid lease ID' });
+    }
+
+    // Fetch the existing lease from Qdrant
+    const leaseResult = await qdrantRequest('POST', `/collections/${COLLECTION}/points`, {
+      ids: [leaseId],
+      with_payload: true
+    });
+
+    const leasePoint = leaseResult.result?.[0];
+    if (!leasePoint) {
+      return res.status(404).json({ error: 'Lease not found' });
+    }
+
+    const payload = leasePoint.payload;
+    const fileName = req.file.originalname;
+
+    console.log(`Processing amendment: ${fileName} for lease ${leaseId}`);
+
+    // Extract fields from the amendment PDF using Gemini
+    const amendmentFields = await extractLeaseFields(req.file.path);
+
+    // Build current terms from the lease (use _current_terms if amendments already exist, otherwise raw fields)
+    const existingTerms = payload._current_terms || {};
+    const originalFields = {};
+    const metaKeys = ['filename', 'filepath', 'uploaded_at', '_citations', '_amendments', '_changelog', '_current_terms'];
+    for (const [k, v] of Object.entries(payload)) {
+      if (!metaKeys.includes(k)) {
+        originalFields[k] = v;
+      }
+    }
+    const currentTerms = Object.keys(existingTerms).length > 0 ? existingTerms : originalFields;
+
+    // Use Claude to reconcile the amendment against current terms
+    const reconciliation = await reconcileAmendment(currentTerms, amendmentFields, fileName);
+
+    // Build updated amendments list
+    const amendments = payload._amendments || [];
+    amendments.push({
+      filename: fileName,
+      filepath: req.file.path,
+      uploaded_at: new Date().toISOString(),
+      fields: amendmentFields,
+      _citations: amendmentFields._citations || null
+    });
+
+    // Build updated changelog (append new entries)
+    const changelog = payload._changelog || [];
+    if (reconciliation.changelog && reconciliation.changelog.length > 0) {
+      for (const entry of reconciliation.changelog) {
+        changelog.push({
+          ...entry,
+          amendment_filename: fileName,
+          amendment_date: new Date().toISOString()
+        });
+      }
+    }
+
+    // Update the lease point payload in Qdrant
+    await qdrantRequest('POST', `/collections/${COLLECTION}/points/payload`, {
+      points: [leaseId],
+      payload: {
+        _amendments: amendments,
+        _changelog: changelog,
+        _current_terms: reconciliation.current_terms || currentTerms
+      }
+    });
+
+    // Re-embed with updated terms for search accuracy
+    const updatedTerms = reconciliation.current_terms || currentTerms;
+    const textForEmbedding = Object.entries(updatedTerms)
+      .filter(([, v]) => v != null)
+      .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(', ') : v}`)
+      .join('\n');
+    const vector = await embed(textForEmbedding || `lease ${fileName}`);
+
+    await qdrantRequest('PUT', `/collections/${COLLECTION}/points`, {
+      points: [{
+        id: leaseId,
+        vector,
+        payload: {
+          ...payload,
+          _amendments: amendments,
+          _changelog: changelog,
+          _current_terms: reconciliation.current_terms || currentTerms
+        }
+      }]
+    });
+
+    res.json({
+      success: true,
+      lease_id: leaseId,
+      amendment_filename: fileName,
+      changelog: reconciliation.changelog || [],
+      current_terms: reconciliation.current_terms || currentTerms
+    });
+
+  } catch (error) {
+    console.error('Amendment upload error:', error);
     cleanupFile(uploadedFilePath);
     res.status(500).json({ error: error.message });
   }
