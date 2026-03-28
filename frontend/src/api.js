@@ -32,6 +32,17 @@ export async function searchLeases(query, limit = 10) {
   return data;
 }
 
+export async function updateLease(id, fields) {
+  const res = await fetch(`${API}/api/leases/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fields }),
+  });
+  const data = await res.json();
+  if (data.error) throw new Error(data.error);
+  return data;
+}
+
 export async function deleteLease(id) {
   const res = await fetch(`${API}/api/leases/${id}`, { method: 'DELETE' });
   if (!res.ok) {

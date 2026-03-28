@@ -25,6 +25,17 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// ===== SECURITY HEADERS =====
+app.disable('x-powered-by');
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-XSS-Protection', '0');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  next();
+});
+
 // ===== BASIC AUTH MIDDLEWARE =====
 const AUTH_USER = process.env.AUTH_USERNAME;
 const AUTH_PASS = process.env.AUTH_PASSWORD;
@@ -75,10 +86,21 @@ const USE_VERTEX = process.env.USE_VERTEX === 'true';
 const storage = multer.diskStorage({
   destination: './uploads/',
   filename: (req, file, cb) => {
-    cb(null, `${Date.now()}-${file.originalname}`);
+    // Sanitize filename: remove path separators and special characters
+    const safeName = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
+    cb(null, `${Date.now()}-${safeName}`);
   }
 });
-const upload = multer({ storage, limits: { fileSize: 50 * 1024 * 1024 } }); // 50MB max
+const upload = multer({
+  storage,
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB max
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype !== 'application/pdf') {
+      return cb(new Error('Only PDF files are allowed'), false);
+    }
+    cb(null, true);
+  }
+});
 
 // Ensure directories exist
 ['./uploads', './data'].forEach(dir => {
@@ -260,7 +282,7 @@ async function extractLeaseFields(pdfPath) {
 
   const url = `https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
 
-  const prompt = `Extract the following fields from this commercial lease document. For each field, also provide a citation with the page number and a short verbatim quote from the source text that supports the extracted value. Return JSON only, no markdown:
+  const prompt = `Extract the following fields from this commercial lease document. For each field, also provide a citation with the lease section/subsection reference and a short verbatim quote from the source text. Return JSON only, no markdown:
 {
   "tenant_name": "",
   "property_address": "",
@@ -270,6 +292,7 @@ async function extractLeaseFields(pdfPath) {
   "lease_commencement_date": "",
   "rent_commencement_date": "",
   "lease_term": "",
+  "expiration_date": "",
   "base_rent_schedule": [{"period": "", "annual_rent": "", "monthly_rent": "", "rent_psf": ""}],
   "tenant_improvement_allowance": "",
   "termination_options": "",
@@ -291,14 +314,14 @@ async function extractLeaseFields(pdfPath) {
   "exclusive_uses": "",
   "expense_exclusions": "",
   "_citations": {
-    "tenant_name": {"page": 1, "quote": "short verbatim excerpt"},
-    "property_address": {"page": 1, "quote": "short verbatim excerpt"}
+    "tenant_name": {"section": "Section 1.1", "quote": "short verbatim excerpt"},
+    "property_address": {"section": "Section 1.2", "quote": "short verbatim excerpt"}
   }
 }
 
 For base_rent_schedule, include ALL rows from any rent schedule table in the lease (each period/step with its annual rent, monthly rent, and rent per square foot). If a field is not found, use null.
 
-For _citations, provide an entry for EVERY field that has a non-null value. "page" is the PDF page number (1-based) where the information was found. "quote" is a short verbatim excerpt (under 120 chars) from the lease text that directly supports the extracted value. For base_rent_schedule, cite the page where the rent table begins.`;
+For _citations, provide an entry for EVERY field that has a non-null value. "section" is the specific article, section, or subsection reference from the lease where the information was found (e.g. "Article 3", "Section 2.3", "Section 5(a)", "Exhibit B", "Basic Lease Information", "Preamble"). Use the exact section numbering from the document. If the lease has no section numbers, use descriptive labels like "Recitals" or "Rent Schedule". "quote" is a short verbatim excerpt (under 120 chars) from the lease text that directly supports the extracted value.`;
 
   const body = JSON.stringify({
     contents: [{
@@ -380,7 +403,7 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
     const vector = await embed(textForEmbedding || `lease ${fileName}`);
 
     // Generate ID
-    const id = Date.now();
+    const id = Date.now() + Math.floor(Math.random() * 1000);
 
     // Store in Qdrant
     await qdrantRequest('PUT', `/collections/${COLLECTION}/points`, {
@@ -389,7 +412,7 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
         vector,
         payload: {
           filename: fileName,
-          filepath: filePath,
+          // filepath intentionally omitted — server paths should not be exposed to clients
           uploaded_at: new Date().toISOString(),
           ...fields
         }
@@ -406,14 +429,15 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
   } catch (error) {
     console.error('Upload error:', error);
     cleanupFile(uploadedFilePath);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: 'Failed to process lease document. Please try again.' });
   }
 });
 
 // Search leases
 app.post('/api/search', async (req, res) => {
   try {
-    const { query, type = 'text', limit = 10 } = req.body;
+    const { query, type = 'text', limit: rawLimit = 10 } = req.body;
+    const limit = Math.min(Math.max(parseInt(rawLimit) || 10, 1), 100);
 
     let vector;
     if (type === 'text') {
@@ -438,7 +462,7 @@ app.post('/api/search', async (req, res) => {
 
   } catch (error) {
     console.error('Search error:', error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: 'Search failed. Please try again.' });
   }
 });
 
@@ -459,7 +483,48 @@ app.get('/api/leases', async (req, res) => {
 
   } catch (error) {
     console.error('List error:', error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: 'Failed to retrieve leases.' });
+  }
+});
+
+// Update lease fields
+app.patch('/api/leases/:id', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (isNaN(id)) {
+      return res.status(400).json({ error: 'Invalid lease ID' });
+    }
+    const { fields } = req.body;
+    if (!fields || typeof fields !== 'object') {
+      return res.status(400).json({ error: 'Missing fields object' });
+    }
+
+    // Only allow updating known lease fields
+    const allowed = new Set([
+      'tenant_name', 'property_address', 'building_name', 'suite_number',
+      'rentable_square_footage', 'lease_commencement_date', 'rent_commencement_date',
+      'lease_term', 'expiration_date', 'base_rent_amount', 'expense_recovery_type',
+      'base_year', 'tenant_improvement_allowance', 'management_fee_cap',
+      'expense_gross_up_pct', 'pro_rata_share', 'building_denominator',
+      'expense_exclusions', 'renewal_options', 'termination_options',
+      'right_of_first_offer', 'right_of_first_refusal', 'right_of_purchase_offer',
+      'permitted_uses', 'exclusive_uses', 'parking_rights', 'letter_of_credit',
+      'signing_entity', 'lease_guarantor', 'lease_type',
+    ]);
+    const safeFields = {};
+    for (const [k, v] of Object.entries(fields)) {
+      if (allowed.has(k)) safeFields[k] = v;
+    }
+
+    await qdrantRequest('POST', `/collections/${COLLECTION}/points/payload`, {
+      payload: safeFields,
+      points: [id],
+    });
+
+    res.json({ success: true, id, updated: Object.keys(safeFields) });
+  } catch (error) {
+    console.error('Update error:', error);
+    res.status(500).json({ error: 'Failed to update lease.' });
   }
 });
 
@@ -482,7 +547,7 @@ app.delete('/api/leases/:id', async (req, res) => {
     }
   } catch (error) {
     console.error('Delete error:', error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: 'Failed to delete lease.' });
   }
 });
 

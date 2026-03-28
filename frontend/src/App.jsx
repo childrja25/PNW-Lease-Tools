@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import Sidebar from './components/Sidebar';
-import Dashboard from './components/Dashboard';
+import Dashboard, { LeaseTable } from './components/Dashboard';
 import LeaseDetail from './components/LeaseDetail';
+import Analytics from './components/Analytics';
 import Toast from './components/Toast';
 import { fetchStats, fetchLeases } from './api';
 
@@ -48,6 +49,22 @@ export default function App() {
       <main className="flex-1 overflow-y-auto">
         {view === 'detail' && selectedLease ? (
           <LeaseDetail lease={selectedLease} onBack={handleBack} showToast={showToast} />
+        ) : view === 'analytics' ? (
+          <Analytics leases={leases} />
+        ) : view === 'library' ? (
+          <div className="p-6 max-w-[1400px] mx-auto">
+            <div className="flex items-center justify-between mb-6">
+              <h1 className="text-2xl font-bold text-white">Lease Library</h1>
+              <span className="text-sm text-gray-400">{leases.length} lease{leases.length !== 1 ? 's' : ''} indexed</span>
+            </div>
+            <LeaseTable
+              leases={leases}
+              connected={connected}
+              onRefresh={loadData}
+              onViewDetails={handleViewDetails}
+              showToast={showToast}
+            />
+          </div>
         ) : (
           <Dashboard
             leases={leases}

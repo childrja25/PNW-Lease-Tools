@@ -114,7 +114,7 @@ function UploadCard({ disabled, onUploadComplete, showToast }) {
         onDragLeave={() => setDragover(false)}
         onDrop={(e) => { e.preventDefault(); setDragover(false); handleUpload(e.dataTransfer.files[0]); }}
       >
-        <input ref={fileRef} type="file" accept=".pdf" className="hidden" onChange={(e) => handleUpload(e.target.files[0])} />
+        <input ref={fileRef} type="file" accept=".pdf" aria-label="Upload lease PDF" className="hidden" onChange={(e) => handleUpload(e.target.files[0])} />
         <div className="w-16 h-16 rounded-2xl bg-blue-600/20 flex items-center justify-center mx-auto mb-3">
           <svg className="w-8 h-8 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.338-2.32 3 3 0 013.407 3.645A4.5 4.5 0 0118 19.5H6.75z" />
@@ -156,13 +156,25 @@ function UploadCard({ disabled, onUploadComplete, showToast }) {
           <h3 className="text-green-400 font-medium text-sm mb-3">Extracted from: {result.filename}</h3>
           <div className="grid grid-cols-2 gap-2">
             {Object.entries(result.fields || {})
-              .filter(([k, v]) => v && k !== 'key_provisions')
-              .map(([k, v]) => (
-                <div key={k} className="bg-navy-600 rounded p-2 border-l-2 border-blue-500">
-                  <div className="text-[10px] uppercase tracking-wider text-gray-500">{toTitleCase(k)}</div>
-                  <div className="text-sm text-gray-200 truncate">{String(v)}</div>
-                </div>
-              ))}
+              .filter(([k, v]) => v && k !== 'key_provisions' && k !== '_citations')
+              .map(([k, v]) => {
+                let display;
+                if (Array.isArray(v)) {
+                  display = v.map(item =>
+                    typeof item === 'object' ? Object.values(item).join(' | ') : String(item)
+                  ).join('; ');
+                } else if (typeof v === 'object' && v !== null) {
+                  display = JSON.stringify(v);
+                } else {
+                  display = String(v);
+                }
+                return (
+                  <div key={k} className="bg-navy-600 rounded p-2 border-l-2 border-blue-500">
+                    <div className="text-[10px] uppercase tracking-wider text-gray-500">{toTitleCase(k)}</div>
+                    <div className="text-sm text-gray-200 truncate">{display}</div>
+                  </div>
+                );
+              })}
           </div>
         </div>
       )}
@@ -219,6 +231,7 @@ function SearchCard({ disabled, showToast }) {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+            aria-label="Search leases"
             placeholder="Search leases, e.g., 'leases expiring 2027' or 'NNN with CAM over $5'"
             disabled={disabled}
             className="w-full pl-9 pr-4 py-2.5 bg-navy-900 border border-gray-700 rounded-lg text-sm text-gray-200 placeholder-gray-500 focus:outline-none focus:border-blue-500 disabled:opacity-50"
@@ -245,7 +258,7 @@ function SearchCard({ disabled, showToast }) {
                 <div className="text-white font-medium text-sm">{r.tenant_name || r.filename}</div>
                 <div className="flex gap-1.5 mt-2 flex-wrap">
                   {r.property_address && <span className="text-xs bg-navy-600 text-gray-300 px-2 py-0.5 rounded">{r.property_address}</span>}
-                  {r.rentable_square_footage && <span className="text-xs bg-navy-600 text-gray-300 px-2 py-0.5 rounded">{r.rentable_square_footage} SF</span>}
+                  {r.rentable_square_footage && <span className="text-xs bg-navy-600 text-gray-300 px-2 py-0.5 rounded">{String(r.rentable_square_footage).replace(/\s*SF\s*$/i, '')} SF</span>}
                   {r.expense_recovery_type && <span className="text-xs bg-navy-600 text-gray-300 px-2 py-0.5 rounded">{r.expense_recovery_type}</span>}
                 </div>
               </div>
@@ -257,7 +270,7 @@ function SearchCard({ disabled, showToast }) {
   );
 }
 
-function LeaseTable({ leases, connected, onRefresh, onViewDetails, showToast }) {
+export function LeaseTable({ leases, connected, onRefresh, onViewDetails, showToast }) {
   const handleDelete = async (lease) => {
     if (!lease.id) {
       showToast('Cannot delete: lease has no ID', true);
@@ -309,7 +322,7 @@ function LeaseTable({ leases, connected, onRefresh, onViewDetails, showToast }) 
                   </td>
                   <td className="py-3 pr-4 hidden lg:table-cell">
                     <div className="flex gap-1 flex-wrap">
-                      {lease.rentable_square_footage && <span className="text-[10px] bg-navy-500 text-gray-300 px-1.5 py-0.5 rounded">{lease.rentable_square_footage} SF</span>}
+                      {lease.rentable_square_footage && <span className="text-[10px] bg-navy-500 text-gray-300 px-1.5 py-0.5 rounded">{String(lease.rentable_square_footage).replace(/\s*SF\s*$/i, '')} SF</span>}
                       {lease.expense_recovery_type && <span className="text-[10px] bg-navy-500 text-gray-300 px-1.5 py-0.5 rounded">{lease.expense_recovery_type}</span>}
                     </div>
                   </td>
@@ -334,6 +347,7 @@ function LeaseTable({ leases, connected, onRefresh, onViewDetails, showToast }) 
                         onClick={() => handleDelete(lease)}
                         className="px-2 py-1.5 text-xs text-gray-500 hover:text-red-400 hover:bg-red-500/10 rounded-md transition opacity-0 group-hover:opacity-100"
                         title="Delete"
+                        aria-label={`Delete lease for ${lease.tenant_name || 'unknown tenant'}`}
                       >
                         <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
                           <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />

@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
+import { updateLease } from '../api';
 
 function toTitleCase(str) {
   return str.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
@@ -32,14 +33,61 @@ function getConfidence(fieldKey) {
 export default function LeaseDetail({ lease, onBack, showToast }) {
   const [searchDoc, setSearchDoc] = useState('');
   const [showSearch, setShowSearch] = useState(false);
+  const [edits, setEdits] = useState({});
+  const [editingField, setEditingField] = useState(null);
+  const [saving, setSaving] = useState(false);
 
   const leaseId = `L-${String(lease.id || 0).slice(-6).padStart(6, '0')}`;
+  const citationCount = lease._citations
+    ? Object.values(lease._citations).filter(c => c?.quote).length
+    : 0;
+
+  const hasEdits = Object.keys(edits).length > 0;
+
+  const startEdit = useCallback((fieldKey, currentValue) => {
+    setEditingField(fieldKey);
+    if (!(fieldKey in edits)) {
+      setEdits(prev => ({ ...prev, [fieldKey]: safeStr(currentValue) }));
+    }
+  }, [edits]);
+
+  const updateEdit = useCallback((fieldKey, value) => {
+    setEdits(prev => ({ ...prev, [fieldKey]: value }));
+  }, []);
+
+  const cancelEdit = useCallback((fieldKey, originalValue) => {
+    setEditingField(null);
+    setEdits(prev => {
+      const next = { ...prev };
+      if (next[fieldKey] === safeStr(originalValue)) delete next[fieldKey];
+      return next;
+    });
+  }, []);
+
+  const handleSave = async () => {
+    if (!hasEdits || !lease.id) return;
+    setSaving(true);
+    try {
+      await updateLease(lease.id, edits);
+      // Apply edits to the lease object in memory so UI reflects changes
+      Object.entries(edits).forEach(([k, v]) => { lease[k] = v; });
+      setEdits({});
+      setEditingField(null);
+      showToast('Changes saved');
+    } catch (err) {
+      showToast('Failed to save: ' + err.message, true);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const handleExport = () => {
     const data = {};
     Object.entries(lease).forEach(([k, v]) => {
       if (v && k !== 'id' && k !== 'filepath') data[k] = v;
     });
+    // Include pending edits in export
+    Object.entries(edits).forEach(([k, v]) => { data[k] = v; });
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -71,146 +119,118 @@ export default function LeaseDetail({ lease, onBack, showToast }) {
           </span>
         </div>
         <div className="flex items-center gap-2">
-          <button className="px-4 py-1.5 text-sm bg-green-600 hover:bg-green-700 text-white rounded-lg transition font-medium">
-            Verify & Save
+          <button
+            onClick={handleSave}
+            disabled={!hasEdits || saving}
+            className={`px-4 py-1.5 text-sm rounded-lg transition font-medium ${
+              hasEdits
+                ? 'bg-green-600 hover:bg-green-700 text-white'
+                : 'bg-gray-700 text-gray-500 cursor-default'
+            }`}
+          >
+            {saving ? 'Saving...' : hasEdits ? `Save ${Object.keys(edits).length} Change${Object.keys(edits).length !== 1 ? 's' : ''}` : 'No Changes'}
           </button>
         </div>
       </div>
 
       {/* Content area: two-panel */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Left: Document Viewer */}
+        {/* Left: Source Language */}
         <div className="w-1/2 border-r border-gray-800 flex flex-col bg-navy-900">
           <div className="bg-navy-700 border-b border-gray-800 px-4 py-2 flex items-center justify-between shrink-0">
-            <h3 className="text-sm font-medium text-white">Document Viewer</h3>
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-gray-500">Page 1 of 45</span>
-              <button className="text-xs text-gray-400 hover:text-white px-2 py-1 rounded hover:bg-navy-600 transition flex items-center gap-1">
-                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7" /></svg>
-                Zoom In
-              </button>
-              <button className="text-xs text-gray-400 hover:text-white px-2 py-1 rounded hover:bg-navy-600 transition flex items-center gap-1">
-                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM13 10H7" /></svg>
-                Zoom Out
-              </button>
+            <h3 className="text-sm font-medium text-white">Source Language</h3>
+            <div className="flex items-center gap-3">
+              {citationCount > 0 && (
+                <span className="text-xs text-gray-500">{citationCount} cited excerpt{citationCount !== 1 ? 's' : ''}</span>
+              )}
               <button
                 onClick={() => setShowSearch(!showSearch)}
                 className="text-xs text-gray-400 hover:text-white px-2 py-1 rounded hover:bg-navy-600 transition flex items-center gap-1"
               >
                 <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-                Search Document
+                Filter
               </button>
             </div>
           </div>
 
-          {/* Search bar (toggleable) */}
           {showSearch && (
-            <div className="bg-navy-800 border-b border-gray-800 px-4 py-2 flex items-center gap-2 shrink-0">
+            <div className="bg-navy-800 border-b border-gray-800 px-4 py-2 shrink-0">
               <input
                 type="text"
                 value={searchDoc}
                 onChange={(e) => setSearchDoc(e.target.value)}
-                placeholder="Search within document..."
-                className="flex-1 px-3 py-1.5 bg-navy-900 border border-gray-700 rounded text-sm text-gray-200 placeholder-gray-500 focus:outline-none focus:border-blue-500"
+                placeholder="Filter excerpts..."
+                aria-label="Filter source excerpts"
+                className="w-full px-3 py-1.5 bg-navy-900 border border-gray-700 rounded text-sm text-gray-200 placeholder-gray-500 focus:outline-none focus:border-blue-500"
               />
             </div>
           )}
 
-          <div className="flex-1 overflow-auto p-6">
-            <div className="bg-white rounded-lg shadow-xl p-8 text-black min-h-[600px]">
-              <h2 className="text-center font-bold text-lg mb-6">COMMERCIAL LEASE AGREEMENT</h2>
-              <div className="space-y-4 text-sm leading-relaxed">
-                {lease.tenant_name && (
-                  <p>
-                    The Lease Agreement shall use a Commercial lease Agreement, the ("Landlord"
-                    {lease.signing_entity && <> Make {safeStr(lease.signing_entity)}</>}
-                    {' '}and {' '}
-                    <span className="bg-yellow-200 px-0.5 font-medium">{lease.tenant_name}</span>
-                    ) January 1, 2024, the commencement of the Premises or
-                    any encroachment about the Premises shall be expire this lease Agreement and shall in a
-                    commercial atmosphere of the Premises.
-                  </p>
-                )}
-
-                {(lease.base_rent_schedule || lease.base_rent_amount) && (
-                  <>
-                    <p className="font-bold mt-4">Article 3: Rent</p>
-                    {Array.isArray(lease.base_rent_schedule) && lease.base_rent_schedule.length > 0 ? (
-                      <>
-                        <p>
-                          The Base Rent for the Premises shall be{' '}
-                          <span className="bg-yellow-200 px-0.5 font-bold">
-                            {lease.base_rent_schedule[0]?.annual_rent || 'Twenty-Five Thousand Five Hundred Dollars'}
-                          </span>{' '}
-                          (<span className="bg-yellow-200 px-0.5 font-bold">
-                            {lease.base_rent_schedule[0]?.monthly_rent || '$25,500.00'}
-                          </span>) per month, subject to annual increases.
-                        </p>
-                        <p className="text-gray-600 text-xs">
-                          The Premises shall be the Commencement Date is used with base interests in an reached
-                          generations of the properties, annual Rent Term, or alter or validation, payment shall the
-                          conference of the Lease and shall (due worksheet) annual interests for the amounts of the
-                          corporation.
-                        </p>
-                        <p>
-                          The Lease Term shall Premises shall be Twenty 1, 2024: the Hundred Dollars (
-                          <span className="bg-yellow-200 px-0.5 font-bold">{lease.base_rent_schedule[0]?.monthly_rent || '$25,500'}</span> per
-                          month, subject to annual increases.
-                        </p>
-                      </>
-                    ) : (
-                      <p>
-                        Rent Amount: <span className="bg-yellow-200 px-0.5">{lease.base_rent_amount || 'N/A'}</span>
-                      </p>
-                    )}
-                  </>
-                )}
-
-                {lease.expense_recovery_type && (
-                  <p>
-                    Expense Recovery: <span className="bg-yellow-200 px-0.5">{safeStr(lease.expense_recovery_type)}</span>
-                    {lease.base_year && <> (Base Year: <span className="bg-yellow-200 px-0.5">{safeStr(lease.base_year)}</span>)</>}
-                  </p>
-                )}
-
-                {lease.lease_commencement_date && (
-                  <>
-                    <p className="font-bold mt-4">Article 5: Term</p>
-                    <p>
-                      The Lease Term shall commence on{' '}
-                      <span className="bg-yellow-200 px-0.5 font-medium">{lease.lease_commencement_date}</span>{' '}
-                      (the "Commencement Date") and expire
-                      {lease.expiration_date && (
-                        <> on <span className="bg-yellow-200 px-0.5 font-medium">{lease.expiration_date}</span></>
-                      )}
-                      {' '}(the "Expiration Date").
-                    </p>
-                    {lease.rent_commencement_date && (
-                      <p>
-                        The Lease Term shall commence on{' '}
-                        <span className="bg-yellow-200 px-0.5 font-medium">{lease.rent_commencement_date}</span>{' '}
-                        (the "Commencement Date") and expire
-                        {lease.expiration_date && (
-                          <> on <span className="bg-yellow-200 px-0.5 font-medium">{lease.expiration_date}</span></>
-                        )}
-                        {' '}(the "Expiration Date").
-                      </p>
-                    )}
-                    <p className="text-gray-600 text-xs">
-                      The Lease Term shall commence shall be made for the disconnect or endorsement for the
-                      Premises.
-                    </p>
-                  </>
-                )}
-
-                {(!lease.tenant_name && !lease.base_rent_schedule) && (
-                  <p className="text-gray-400 italic text-center py-12">
-                    Document preview is based on extracted data.
-                    <br />Upload the original PDF for full document viewing.
-                  </p>
-                )}
+          <div className="flex-1 overflow-y-auto p-4 space-y-5">
+            {citationCount === 0 ? (
+              <div className="flex flex-col items-center justify-center h-full text-gray-500 text-sm">
+                <svg className="w-12 h-12 mb-3 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                <p>No source citations available.</p>
+                <p className="text-xs text-gray-600 mt-1">Re-upload the PDF to generate citations.</p>
               </div>
-            </div>
+            ) : (
+              Object.entries(FIELD_GROUPS).map(([section, fields]) => {
+                const sectionCitations = fields
+                  .filter(f => {
+                    const c = lease._citations?.[f];
+                    if (!c?.quote) return false;
+                    if (searchDoc) {
+                      const term = searchDoc.toLowerCase();
+                      return c.quote.toLowerCase().includes(term) || toTitleCase(f).toLowerCase().includes(term);
+                    }
+                    return true;
+                  })
+                  .map(f => ({ field: f, citation: lease._citations[f], value: lease[f] }));
+
+                if (sectionCitations.length === 0) return null;
+
+                return (
+                  <div key={section}>
+                    <h4 className="text-xs uppercase tracking-wider text-gray-500 font-semibold mb-2 border-b border-gray-700/50 pb-1.5">
+                      {section}
+                    </h4>
+                    <div className="space-y-2">
+                      {sectionCitations.map(({ field, citation, value }) => (
+                        <div key={field} className="bg-navy-800 rounded-lg border border-gray-700/50 overflow-hidden">
+                          <div className="px-3 py-2 flex items-center justify-between bg-navy-700/50">
+                            <span className="text-[10px] uppercase tracking-wider text-gray-400 font-medium">
+                              {toTitleCase(field)}
+                            </span>
+                            <div className="flex items-center gap-2">
+                              {(citation.section || citation.page) && (
+                                <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400">
+                                  {citation.section || `Page ${citation.page}`}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <div className="px-3 py-2.5">
+                            <p className="text-sm text-gray-200 leading-relaxed italic">
+                              "{citation.quote}"
+                            </p>
+                            <div className="mt-2 flex items-center gap-2">
+                              <svg className="w-3 h-3 text-green-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                              </svg>
+                              <span className="text-xs text-green-400">
+                                {safeStr(value)}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })
+            )}
           </div>
         </div>
 
@@ -269,24 +289,48 @@ export default function LeaseDetail({ lease, onBack, showToast }) {
                       );
                     }
 
-                    const displayValue = safeStr(value);
+                    const displayValue = fieldKey in edits ? edits[fieldKey] : safeStr(value);
                     const confidence = getConfidence(fieldKey);
+                    const isEditing = editingField === fieldKey;
+                    const isEdited = fieldKey in edits && edits[fieldKey] !== safeStr(value);
 
                     return (
-                      <div key={fieldKey} className="bg-navy-700 rounded-lg p-3 border border-gray-700/50">
+                      <div key={fieldKey} className={`bg-navy-700 rounded-lg p-3 border ${isEdited ? 'border-yellow-500/50' : 'border-gray-700/50'}`}>
                         <div className="flex items-center justify-between mb-0.5">
-                          <span className="text-[10px] uppercase tracking-wider text-gray-500 font-medium">
+                          <span className="text-[10px] uppercase tracking-wider text-gray-500 font-medium flex items-center gap-1.5">
                             {toTitleCase(fieldKey)}
+                            {isEdited && <span className="text-[9px] text-yellow-400 font-normal">(edited)</span>}
                           </span>
                           <div className="flex items-center gap-2">
                             {citation && <CitationTag citation={citation} />}
                             {value && <ConfidenceBadge confidence={confidence} />}
                           </div>
                         </div>
-                        <div className={`text-sm ${value ? 'text-white' : 'text-gray-600 italic'}`}>
-                          {displayValue || 'Not found'}
-                        </div>
-                        {citation?.quote && (
+                        {isEditing ? (
+                          <div className="flex items-center gap-1.5 mt-1">
+                            <input
+                              type="text"
+                              autoFocus
+                              value={edits[fieldKey] ?? ''}
+                              onChange={(e) => updateEdit(fieldKey, e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') setEditingField(null);
+                                if (e.key === 'Escape') cancelEdit(fieldKey, value);
+                              }}
+                              onBlur={() => setEditingField(null)}
+                              className="flex-1 px-2 py-1 bg-navy-900 border border-blue-500 rounded text-sm text-white focus:outline-none"
+                            />
+                          </div>
+                        ) : (
+                          <div
+                            onClick={() => startEdit(fieldKey, value)}
+                            className={`text-sm cursor-pointer rounded px-1 -mx-1 py-0.5 hover:bg-navy-600 transition ${value || isEdited ? 'text-white' : 'text-gray-600 italic'}`}
+                            title="Click to edit"
+                          >
+                            {displayValue || 'Not found'}
+                          </div>
+                        )}
+                        {citation?.quote && !isEditing && (
                           <div className="mt-1 text-[11px] text-gray-500 italic border-l-2 border-gray-600 pl-2 leading-snug">
                             "{citation.quote}"
                           </div>
@@ -318,13 +362,14 @@ export default function LeaseDetail({ lease, onBack, showToast }) {
 }
 
 function CitationTag({ citation }) {
-  if (!citation?.page) return null;
+  const ref = citation?.section || (citation?.page ? `p.${citation.page}` : null);
+  if (!ref) return null;
   return (
     <span
       className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 cursor-default"
       title={citation.quote || ''}
     >
-      p.{citation.page}
+      {ref}
     </span>
   );
 }
