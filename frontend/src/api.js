@@ -43,6 +43,15 @@ export async function updateLease(id, fields) {
   return data;
 }
 
+export async function uploadAmendment(leaseId, file) {
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await fetch(`${API}/api/leases/${leaseId}/amendments`, { method: 'POST', body: formData });
+  const data = await res.json();
+  if (data.error) throw new Error(data.error);
+  return data;
+}
+
 export async function deleteLease(id) {
   const res = await fetch(`${API}/api/leases/${id}`, { method: 'DELETE' });
   if (!res.ok) {
